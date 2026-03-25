@@ -270,7 +270,44 @@ import Layout from '../layouts/Layout.astro';
     </section>
   </dialog>
 
+  <dialog id="category-products-modal" class="admin-modal" aria-label="Productos de categoria">
+    <section class="panel admin-modal-panel" style="max-width: 600px;">
+      <h2 id="category-products-modal-title" style="margin-top: 0;">Gestionar Productos</h2>
+      <p id="category-products-subtitle" style="color: var(--muted); margin-top: 0.2rem;"></p>
+      
+      <div style="margin: 1.5rem 0; border: 1px solid var(--border); padding: 1rem; border-radius: 8px;">
+        <h3 style="margin-top: 0; font-size: 1rem;">Añadir producto a esta categoria</h3>
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+          <select id="category-add-product-select" style="flex: 1; padding: 0.5rem;">
+            <option value="">Selecciona un producto...</option>
+          </select>
+          <button type="button" id="category-add-product-btn">Añadir</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="category-products-list"></tbody>
+        </table>
+      </div>
+
+      <div class="checkout-actions" style="margin-top: 1rem;">
+        <button type="button" class="btn secondary" id="category-products-close-btn">Cerrar</button>
+      </div>
+    </section>
+  </dialog>
+
   <p id="admin-global-feedback" class="alert" style="display: none; margin-top: 1rem;"></p>
+
+  <!-- jsPDF & jsPDF-AutoTable para facturas -->
+  <script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
 
   <script>
     // @ts-nocheck
@@ -577,6 +614,7 @@ import Layout from '../layouts/Layout.astro';
                 <td>${total}</td>
                 <td>
                   <div class="row">
+                    <button type="button" class="btn secondary" data-action="view-category-products" data-id="${category.id}">Ver Productos</button>
                     <button type="button" class="btn secondary" data-action="edit-category" data-id="${category.id}">Editar</button>
                     <button type="button" class="btn secondary" data-action="delete-category" data-id="${category.id}">Eliminar</button>
                   </div>
@@ -759,6 +797,71 @@ import Layout from '../layouts/Layout.astro';
       categoryForm.elements.namedItem('id').value = '';
       hideAlert(categoryFormFeedback);
       categoryModalTitle.textContent = 'Nueva categoria';
+    }
+
+    const categoryProductsModal = document.getElementById('category-products-modal');
+    const categoryProductsTitle = document.getElementById('category-products-modal-title');
+    const categoryProductsSubtitle = document.getElementById('category-products-subtitle');
+    const categoryProductsList = document.getElementById('category-products-list');
+    const categoryAddProductSelect = document.getElementById('category-add-product-select');
+    const categoryAddProductBtn = document.getElementById('category-add-product-btn');
+    const categoryProductsCloseBtn = document.getElementById('category-products-close-btn');
+
+    let currentManageCategoryId = null;
+
+    categoryProductsCloseBtn?.addEventListener('click', () => categoryProductsModal.close());
+
+    categoryAddProductBtn?.addEventListener('click', async () => {
+      const productId = categoryAddProductSelect.value;
+      if (!productId || !currentManageCategoryId) return;
+      
+      const { error } = await supabase.from('products').update({ category_id: currentManageCategoryId }).eq('id', productId);
+      if (error) {
+        showGlobal('danger', `No se pudo añadir el producto: ${error.message}`);
+        return;
+      }
+      showGlobal('ok', 'Producto añadido a la categoría.');
+      await refreshAll();
+      openCategoryProductsModal(currentManageCategoryId);
+    });
+
+    categoryProductsList?.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-action="remove-product-cat"]');
+      if (!btn) return;
+      const productId = btn.getAttribute('data-id');
+      const { error } = await supabase.from('products').update({ category_id: null }).eq('id', productId);
+      if (error) {
+        showGlobal('danger', `No se pudo remover el producto: ${error.message}`);
+        return;
+      }
+      showGlobal('ok', 'Producto removido de la categoría.');
+      await refreshAll();
+      openCategoryProductsModal(currentManageCategoryId);
+    });
+
+    function openCategoryProductsModal(categoryId) {
+      const category = categories.find(c => String(c.id) === String(categoryId));
+      if (!category) return;
+      currentManageCategoryId = categoryId;
+      categoryProductsTitle.textContent = `Productos en: ${category.name}`;
+      
+      const catProducts = products.filter(p => String(p.category_id) === String(categoryId));
+      categoryProductsSubtitle.textContent = `${catProducts.length} productos en esta categoria.`;
+
+      categoryProductsList.innerHTML = catProducts.length ? catProducts.map(p => `
+        <tr>
+          <td>${p.name}</td>
+          <td>
+            <button type="button" class="btn secondary" data-action="remove-product-cat" data-id="${p.id}">Quitar</button>
+          </td>
+        </tr>
+      `).join('') : '<tr><td colspan="2">No hay productos.</td></tr>';
+
+      const unassignedProducts = products.filter(p => String(p.category_id) !== String(categoryId));
+      categoryAddProductSelect.innerHTML = '<option value="">Selecciona un producto...</option>' + 
+        unassignedProducts.map(p => `<option value="${p.id}">${p.name} (Actual: ${getCategoryName(p.category_id)})</option>`).join('');
+
+      categoryProductsModal.showModal();
     }
 
     function openCategoryModal(categoryId = null) {
@@ -1042,24 +1145,90 @@ import Layout from '../layouts/Layout.astro';
       }
 
       const order = orders.find((entry) => entry.id === invoice.order_id);
-      const lines = [
-        `Factura: ${invoice.id}`,
-        `Pedido: ${invoice.order_id}`,
-        `Fecha: ${formatDate(invoice.created_at)}`,
-        `Cliente: ${invoice.customer}`,
-        `Total: ${formatMoney(invoice.total_cents)}`,
-        '',
-        'Lineas:',
-      ];
+      
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      
+      // Colores corporativos (elegilsa.com)
+      const brandColor = [126, 95, 75]; // #7e5f4b
 
+      doc.setFontSize(22);
+      doc.setTextColor(brandColor[0], brandColor[1], brandColor[2]);
+      doc.text('ELEGILSA', 14, 20);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text('Moda femenina y complementos', 14, 26);
+      doc.text('www.elegilsa.com', 14, 31);
+      
+      doc.setFontSize(14);
+      doc.setTextColor(0);
+      doc.text('FACTURA', 140, 20);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Factura Nº: ${invoice.id}`, 140, 26);
+      doc.text(`Fecha: ${formatDate(invoice.created_at)}`, 140, 31);
+      doc.text(`Pedido: ${invoice.order_id}`, 140, 36);
+
+      // Datos Cliente
+      doc.setTextColor(0);
+      doc.setFontSize(11);
+      doc.text('Datos del Cliente:', 14, 50);
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      if (order?.shipping) {
+        doc.text(order.shipping.full_name || invoice.customer, 14, 56);
+        doc.text(order.shipping.shipping_address || '', 14, 61);
+        doc.text(`${order.shipping.shipping_postal_code || ''} ${order.shipping.shipping_city || ''}`, 14, 66);
+        doc.text(order.shipping.shipping_country || '', 14, 71);
+      } else {
+        doc.text(invoice.customer, 14, 56);
+      }
+
+      const tableData = [];
       const items = Array.isArray(order?.items) ? order.items : [];
+      let subtotal = 0;
       for (const item of items) {
         const qty = Number(item.quantity) || 0;
         const unit = Number(item.unitPriceCents) || 0;
-        lines.push(`- ${item.name || 'Producto'} x${qty} (${formatMoney(unit * qty)})`);
+        const lineTotal = unit * qty;
+        subtotal += lineTotal;
+        tableData.push([
+          item.name || 'Producto',
+          qty.toString(),
+          formatMoney(unit),
+          formatMoney(lineTotal)
+        ]);
+      }
+      
+      const shippingCost = Number(order?.shipping_cents) || 0;
+      if (shippingCost > 0) {
+        tableData.push(['Envío', '1', formatMoney(shippingCost), formatMoney(shippingCost)]);
       }
 
-      downloadText(`${invoice.id}.txt`, lines.join('\n'));
+      doc.autoTable({
+        startY: 85,
+        head: [['Producto', 'Cantidad', 'Precio Unit.', 'Total']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { fillColor: brandColor },
+        margin: { left: 14, right: 14 }
+      });
+
+      const finalY = doc.lastAutoTable.finalY + 10;
+      doc.setFontSize(12);
+      doc.setTextColor(0);
+      doc.text('Total Factura:', 140, finalY);
+      doc.setFontSize(14);
+      doc.text(formatMoney(invoice.total_cents), 170, finalY);
+      
+      // Footer
+      doc.setFontSize(9);
+      doc.setTextColor(150);
+      doc.text('Gracias por su compra en Elegilsa.', 105, 280, { align: 'center' });
+
+      doc.save(`Factura_Elegilsa_${invoice.id}.pdf`);
     }
 
     async function refreshAll() {
@@ -1198,10 +1367,13 @@ import Layout from '../layouts/Layout.astro';
       const id = button.getAttribute('data-id');
       if (!id) return;
 
+      if (action === 'view-category-products') {
+        openCategoryProductsModal(id);
+      }
+
       if (action === 'edit-category') {
         openCategoryModal(id);
       }
-
       if (action === 'delete-category') {
         const shouldDelete = window.confirm('¿Seguro que quieres borrar esta categoria?');
         if (!shouldDelete) return;

@@ -84,43 +84,55 @@ import Layout from '../layouts/Layout.astro';
   </section>
 
   <section id="profile-panel" class="panel" style="max-width: 760px; margin: 1rem auto; display: none;">
-    <h2 style="margin-top: 0;">Datos de envio</h2>
-    <p id="logged-email" style="margin-top: 0; color: var(--muted);"></p>
+    <div class="profile-tabs" style="display: flex; gap: 1.5rem; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem; padding-bottom: 0;">
+      <button class="profile-tab-btn active" data-ptab="datos" style="background: none; border: none; font-weight: 600; font-size: 1.1rem; cursor: pointer; padding: 0.5rem 0; border-bottom: 2px solid var(--brand); margin-bottom: -2px; color: var(--brand);">Mis Datos</button>
+      <button class="profile-tab-btn" data-ptab="pedidos" style="background: none; border: none; font-weight: 600; font-size: 1.1rem; cursor: pointer; padding: 0.5rem 0; border-bottom: 2px solid transparent; margin-bottom: -2px; color: var(--muted);">Mis Pedidos</button>
+    </div>
 
-    <form id="profile-form" class="form-grid">
-      <label>
-        Nombre completo
-        <input name="full_name" type="text" maxlength="120" />
-      </label>
-      <label>
-        Telefono
-        <input name="phone" type="tel" maxlength="40" />
-      </label>
-      <label style="grid-column: 1 / -1;">
-        Direccion
-        <input name="shipping_address" type="text" maxlength="200" required />
-      </label>
-      <label>
-        Ciudad
-        <input name="shipping_city" type="text" maxlength="100" required />
-      </label>
-      <label>
-        Codigo postal
-        <input name="shipping_postal_code" type="text" maxlength="20" required />
-      </label>
-      <label>
-        Pais
-        <input name="shipping_country" type="text" maxlength="80" value="España" required />
-      </label>
-      <label style="grid-column: 1 / -1;">
-        Notas
-        <textarea name="notes" rows="3" maxlength="500"></textarea>
-      </label>
-      <div class="row" style="grid-column: 1 / -1;">
-        <button type="submit">Guardar perfil</button>
-        <a class="btn secondary" href="/checkout">Ir al checkout</a>
+    <div id="panel-datos" class="ptab-content">
+      <h2 style="margin-top: 0;">Datos de envio</h2>
+      <p id="logged-email" style="margin-top: 0; color: var(--muted);"></p>
+
+      <form id="profile-form" class="form-grid">
+        <label>
+          Nombre completo
+          <input name="full_name" type="text" maxlength="120" />
+        </label>
+        <label>
+          Telefono
+          <input name="phone" type="tel" maxlength="40" />
+        </label>
+        <label style="grid-column: 1 / -1;">
+          Direccion
+          <input name="shipping_address" type="text" maxlength="200" required />
+        </label>
+        <label>
+          Ciudad
+          <input name="shipping_city" type="text" maxlength="100" required />
+        </label>
+        <label>
+          Codigo postal
+          <input name="shipping_postal_code" type="text" maxlength="20" required />
+        </label>
+        <label>
+          Pais
+          <input name="shipping_country" type="text" maxlength="80" value="España" required />
+        </label>
+        <label style="grid-column: 1 / -1;">
+          Notas
+          <textarea name="notes" rows="3" maxlength="500"></textarea>
+        </label>
+        <div class="row" style="grid-column: 1 / -1;">
+          <button type="submit">Guardar perfil</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="panel-pedidos" class="ptab-content" style="display: none;">
+      <div id="orders-list">
+        <p class="alert">Aun no tienes pedidos registrados.</p>
       </div>
-    </form>
+    </div>
 
     <p class="alert" id="profile-feedback-2" style="display: none; margin-top: 1rem;" aria-live="polite"></p>
   </section>
@@ -309,6 +321,67 @@ import Layout from '../layouts/Layout.astro';
       }
     }
 
+    // Profile Tabs
+    const pTabs = Array.from(document.querySelectorAll('.profile-tab-btn'));
+    const pContents = Array.from(document.querySelectorAll('.ptab-content'));
+
+    function selectProfileTab(tabName) {
+      if (tabName === 'pedidos') {
+        renderOrders();
+      }
+      pTabs.forEach(t => {
+        const isActive = t.getAttribute('data-ptab') === tabName;
+        t.style.borderBottomColor = isActive ? 'var(--brand)' : 'transparent';
+        t.style.color = isActive ? 'var(--brand)' : 'var(--muted)';
+      });
+      pContents.forEach(c => {
+        c.style.display = c.id === 'panel-' + tabName ? 'block' : 'none';
+      });
+    }
+
+    pTabs.forEach(t => t.addEventListener('click', () => selectProfileTab(t.getAttribute('data-ptab'))));
+
+    function renderOrders() {
+      const ordersList = document.getElementById('orders-list');
+      if (!ordersList) return;
+
+      const { data } = supabase.auth.getSession().then(({ data }) => {
+        const user = data?.session?.user;
+        if (!user) return;
+        
+        let orders = [];
+        try {
+          const raw = localStorage.getItem('elegilsa_orders_v1');
+          orders = raw ? JSON.parse(raw) : [];
+        } catch {
+          orders = [];
+        }
+
+        const userOrders = orders.filter(o => o.user_id === user.id);
+        
+        if (userOrders.length === 0) {
+          ordersList.innerHTML = '<p class="alert">Aun no tienes pedidos registrados.</p>';
+          return;
+        }
+
+        ordersList.innerHTML = userOrders.map(o => `
+          <div style="border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; border-bottom: 1px solid #f0f0f0; padding-bottom: 0.5rem;">
+              <strong>Pedido ${o.id}</strong>
+              <span style="color: ${o.status === 'pending' ? 'var(--warn)' : 'var(--ok)'}; font-weight: 600;">
+                ${o.status === 'pending' ? 'Pendiente de pago (Stripe)' : 'Completado'}
+              </span>
+            </div>
+            <p style="margin: 0.25rem 0; font-size: 0.9rem; color: var(--muted);">Fecha: ${new Date(o.created_at).toLocaleString()}</p>
+            <p style="margin: 0.25rem 0; font-size: 0.9rem; color: var(--muted);">Total: <strong>${new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(o.total_cents / 100)}</strong></p>
+            <div style="margin-top: 0.5rem; font-size: 0.85rem;">
+              ${o.items.map(i => `<div>${i.quantity}x ${i.name} ${i.variantName ? '(' + i.variantName + ')' : ''}</div>`).join('')}
+            </div>
+          </div>
+        `).join('');
+      });
+    }
+
     async function syncUi() {
       const { data, error } = await Promise.race([
         supabase.auth.getSession(),
@@ -341,6 +414,13 @@ import Layout from '../layouts/Layout.astro';
 
       const profile = getStoredProfile(user.id);
       setFormFromProfile(user, profile);
+
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('tab') === 'pedidos') {
+        selectProfileTab('pedidos');
+      } else {
+        selectProfileTab('datos');
+      }
     }
 
     loginForm?.addEventListener('submit', async (event) => {

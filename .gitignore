@@ -1,6 +1,25 @@
-node_modules/
+﻿# Local Netlify folder
+.netlify/
+
+# build output
 dist/
+
+# Astro generated files
 .astro/
+
+# Vite generated files
+vite.config.ts.timestamp-*
+
+# Dependency directories
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS generated files
+.DS_Store
+
+# Environment variables
 .env
+.env.production
 .env.local
-.env.*.local
+.env.development

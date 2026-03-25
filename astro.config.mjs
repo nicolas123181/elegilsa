@@ -7,8 +7,8 @@ export default defineConfig({
   vite: {
     server: {
       fs: {
-        // Prevent Windows absolute-path restrictions when dependencies resolve outside workspace root.
-        allow: ['C:/Users/prats'],
+        // Permitir que Vite sirva archivos desde la raíz del proyecto actual
+        allow: ['..'],
       },
     },
   },

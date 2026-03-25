@@ -132,6 +132,41 @@ try {
 				body.style.setProperty('--mouse-x', `${x}%`);
 				body.style.setProperty('--mouse-y', `${y}%`);
 			});
+
+			window.toggleWishlist = function(event, product) {
+				const btn = event.currentTarget;
+				const icon = btn.querySelector('svg');
+				let wishlist = [];
+				try {
+					const raw = localStorage.getItem('elegilsa_wishlist_v1');
+					wishlist = raw ? JSON.parse(raw) : [];
+				} catch (e) {}
+
+				const index = wishlist.findIndex(item => item.slug === product.slug);
+				if (index > -1) {
+					wishlist.splice(index, 1);
+					icon.style.fill = 'none';
+					icon.style.stroke = 'currentColor';
+				} else {
+					wishlist.push(product);
+					icon.style.fill = '#e74c3c';
+					icon.style.stroke = '#e74c3c';
+				}
+				localStorage.setItem('elegilsa_wishlist_v1', JSON.stringify(wishlist));
+			};
+
+			document.addEventListener('DOMContentLoaded', () => {
+				try {
+					const wishlist = JSON.parse(localStorage.getItem('elegilsa_wishlist_v1') || '[]');
+					wishlist.forEach(item => {
+						const icons = document.querySelectorAll(`.wishlist-icon[data-slug="${item.slug}"]`);
+						icons.forEach(icon => {
+							icon.style.fill = '#e74c3c';
+							icon.style.stroke = '#e74c3c';
+						});
+					});
+				} catch(e) {}
+			});
 		</script>
 	</body>
 </html>

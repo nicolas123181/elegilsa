@@ -1,17 +1,17 @@
 :root {
-  --bg: #fbf7f2;
+  --bg: #ffffff;
   --surface: #ffffff;
-  --surface-soft: #f4ece3;
-  --text: #2f241e;
-  --muted: #6a5b51;
-  --brand: #7e5f4b;
-  --brand-2: #b88e6d;
-  --border: #e6dbcf;
-  --ok: #237a45;
-  --danger: #b03636;
-  --warn: #a66a00;
-  --shadow: 0 8px 24px rgba(73, 43, 24, 0.08);
-  --shadow-soft: 0 4px 12px rgba(73, 43, 24, 0.08);
+  --surface-soft: #f8f9fa;
+  --text: #111111;
+  --muted: #6c757d;
+  --brand: #000000;
+  --brand-2: #333333;
+  --border: #e2e8f0;
+  --ok: #20402b;
+  --danger: #9c2b2e;
+  --warn: #8a6d3b;
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.02);
   --mouse-x: 50%;
   --mouse-y: 30%;
 }
@@ -26,11 +26,7 @@ body {
   padding: 0;
   font-family: "DM Sans", "Segoe UI", sans-serif;
   color: var(--text);
-  background:
-    radial-gradient(circle at var(--mouse-x) var(--mouse-y), rgba(255, 226, 195, 0.35) 0%, transparent 22%),
-    radial-gradient(circle at 10% 0%, #ffe9d6 0%, transparent 28%),
-    radial-gradient(circle at 80% 20%, #ffe1cc 0%, transparent 24%),
-    var(--bg);
+  background: var(--bg);
   min-height: 100%;
 }
 
@@ -248,11 +244,11 @@ img {
 }
 
 .hero-card {
-  border-radius: 18px;
-  background: linear-gradient(180deg, #ffe7d5 0%, #f8dfcd 100%);
+  border-radius: 4px;
+  background: var(--surface-soft);
   min-height: 320px;
   box-shadow: var(--shadow);
-  border: 1px solid #f2d5bf;
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 

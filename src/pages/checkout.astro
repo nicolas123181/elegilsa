@@ -87,24 +87,17 @@ import Layout from '../layouts/Layout.astro';
       <h2 style="margin-top: 0;">Metodo de pago</h2>
       <div class="payment-methods" id="payment-methods">
         <label class="radio-tile">
-          <input type="radio" name="payment_method" value="card" checked />
+          <input type="radio" name="payment_method" value="stripe" checked />
           <div>
-            <strong>Tarjeta</strong>
-            <small>Visa, Mastercard o similar</small>
-          </div>
-        </label>
-        <label class="radio-tile">
-          <input type="radio" name="payment_method" value="bizum" />
-          <div>
-            <strong>Bizum</strong>
-            <small>Pago instantaneo</small>
+            <strong>Pagar con Tarjeta (Stripe)</strong>
+            <small>Pago seguro y cifrado SSL</small>
           </div>
         </label>
         <label class="radio-tile">
           <input type="radio" name="payment_method" value="transfer" />
           <div>
-            <strong>Transferencia</strong>
-            <small>Te enviaremos instrucciones por email</small>
+            <strong>Transferencia Bancaria</strong>
+            <small>Procesamiento manual</small>
           </div>
         </label>
       </div>
@@ -122,12 +115,14 @@ import Layout from '../layouts/Layout.astro';
       <div class="checkout-summary">
         <div class="summary-line"><span>Subtotal</span><strong id="sum-subtotal">0,00 €</strong></div>
         <div class="summary-line"><span>Envio</span><strong id="sum-shipping">0,00 €</strong></div>
-        <div class="summary-line"><span>Total</span><strong id="sum-total">0,00 €</strong></div>
+        <div class="summary-line" style="border-top: 2px solid var(--border); padding-top: 1rem; margin-top: 0.5rem; font-size: 1.2rem;">
+          <span>Total</span><strong id="sum-total">0,00 €</strong>
+        </div>
       </div>
 
       <div class="checkout-actions">
         <button type="button" class="btn secondary" data-prev="3">Volver</button>
-        <button id="place-order-btn" type="button">Confirmar pedido</button>
+        <button id="stripe-checkout-btn" type="button" style="background: #000; color: #fff;">Confirmar y Pagar</button>
       </div>
     </section>
 
@@ -149,7 +144,7 @@ import Layout from '../layouts/Layout.astro';
     const sumSubtotalEl = document.getElementById('sum-subtotal');
     const sumShippingEl = document.getElementById('sum-shipping');
     const sumTotalEl = document.getElementById('sum-total');
-    const placeOrderBtn = document.getElementById('place-order-btn');
+    const stripeCheckoutBtn = document.getElementById('stripe-checkout-btn');
 
     let activeStep = 1;
 
@@ -339,7 +334,7 @@ import Layout from '../layouts/Layout.astro';
       input.addEventListener('change', renderSummary);
     });
 
-    placeOrderBtn?.addEventListener('click', () => {
+    stripeCheckoutBtn?.addEventListener('click', () => {
       if (!validateStep(4)) return;
 
       const userId = getCurrentUserId();
@@ -348,6 +343,9 @@ import Layout from '../layouts/Layout.astro';
         authNoteEl.style.display = 'block';
         return;
       }
+
+      stripeCheckoutBtn.disabled = true;
+      stripeCheckoutBtn.textContent = 'Procesando...';
 
       const cart = normalizeCart(readCart());
       const subtotal = cart.reduce((acc, item) => acc + (item.unitPriceCents || 0) * item.quantity, 0);
@@ -396,10 +394,22 @@ import Layout from '../layouts/Layout.astro';
       localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
       localStorage.removeItem(CART_KEY);
 
-      showFeedback('ok', `Pedido ${order.id} confirmado. Total ${formatEuros(total)}.`);
-      setTimeout(() => {
-        window.location.href = '/collections/all';
-      }, 900);
+      const paymentMethod = getPaymentMethod();
+
+      if (paymentMethod === 'stripe') {
+        showFeedback('ok', `Redirigiendo a la pasarela de pago de Stripe... (Aqui se conectara tu API Key)`);
+        // Aqui iria la integracion real:
+        // const session = await createStripeSession(cart);
+        // window.location.href = session.url;
+        setTimeout(() => {
+          window.location.href = '/perfil?tab=pedidos';
+        }, 2000);
+      } else {
+        showFeedback('ok', `Pedido ${order.id} confirmado por transferencia. Total ${formatEuros(total)}.`);
+        setTimeout(() => {
+          window.location.href = '/perfil?tab=pedidos';
+        }, 1500);
+      }
     });
 
     prefillFromProfile();

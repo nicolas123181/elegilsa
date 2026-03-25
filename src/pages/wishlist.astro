@@ -1,0 +1,85 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Wishlist | ELEGILSA" description="Tus productos favoritos guardados.">
+  <section class="panel" style="margin-top: 1rem;">
+    <h1 style="margin-top: 0;">Wishlist / Mis Favoritos</h1>
+    <p style="color: var(--muted);">Aqui encontraras los productos a los que les has dado me gusta.</p>
+    
+    <div id="wishlist-empty" style="display: none;">
+      <p>Aun no tienes productos en tu wishlist.</p>
+      <a class="btn secondary" href="/collections/all">Ver productos</a>
+    </div>
+
+    <div id="wishlist-content" style="display: none;">
+      <div id="wishlist-list" class="grid"></div>
+    </div>
+  </section>
+
+  <script is:inline>
+    const WISHLIST_KEY = 'elegilsa_wishlist_v1';
+    const emptyEl = document.getElementById('wishlist-empty');
+    const contentEl = document.getElementById('wishlist-content');
+    const listEl = document.getElementById('wishlist-list');
+
+    function formatEuros(cents) {
+      return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((cents || 0) / 100);
+    }
+
+    function readWishlist() {
+      try {
+        const raw = localStorage.getItem(WISHLIST_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function removeWishlist(slug) {
+      let wishlist = readWishlist();
+      wishlist = wishlist.filter(item => item.slug !== slug);
+      localStorage.setItem(WISHLIST_KEY, JSON.stringify(wishlist));
+      render();
+    }
+
+    function render() {
+      const wishlist = readWishlist();
+
+      if (wishlist.length === 0) {
+        emptyEl.style.display = 'block';
+        contentEl.style.display = 'none';
+        return;
+      }
+
+      emptyEl.style.display = 'none';
+      contentEl.style.display = 'block';
+      listEl.innerHTML = '';
+
+      wishlist.forEach(item => {
+        const article = document.createElement('article');
+        article.className = 'card';
+        article.innerHTML = `
+          <a href="/products/${item.slug}" aria-label="Ver ${item.name}">
+            <div class="card-media">
+              <img src="${item.image || '/catalogo/placeholder.svg'}" alt="${item.name}" loading="lazy" />
+            </div>
+            <div class="card-body">
+              <h3 class="card-name">${item.name}</h3>
+              <p class="price">
+                <span>${formatEuros(item.price_cents)}</span>
+              </p>
+            </div>
+          </a>
+          <div style="padding: 0 1rem 1rem;">
+            <button class="btn secondary" style="width: 100%;" onclick="event.preventDefault(); window.removeWishlist('${item.slug}')">Eliminar de Wishlist</button>
+          </div>
+        `;
+        listEl.appendChild(article);
+      });
+    }
+
+    window.removeWishlist = removeWishlist;
+    render();
+  </script>
+</Layout>
