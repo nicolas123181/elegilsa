@@ -1,0 +1,502 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Perfil | ELEGILSA" description="Gestion completa de tu sesion y direcciones para checkout.">
+  <section class="panel" style="max-width: 760px; margin: 1.2rem auto;">
+    <h1 style="margin-top: 0;">Perfil y sesion</h1>
+    <p id="profile-status">Comprobando estado de sesion…</p>
+
+    <div class="row" style="margin-top: 0.6rem;">
+      <a id="back-link" class="btn secondary" href="/collections/all">Volver</a>
+      <button id="logout-btn" type="button" class="btn secondary" style="display: none;">Cerrar sesion</button>
+    </div>
+
+    <p class="alert" id="profile-feedback" style="display: none; margin-top: 1rem;" aria-live="polite"></p>
+  </section>
+
+  <section id="auth-panel" class="panel auth-shell" style="max-width: 860px; margin: 1rem auto; display: none;">
+    <div class="auth-side">
+      <h2 style="margin: 0;">Bienvenida a tu Cuenta</h2>
+      <p style="margin: 0.4rem 0 0; color: var(--muted);">
+        Accede para wishlist, checkout rapido y seguimiento de pedidos.
+      </p>
+      <ul class="auth-benefits">
+        <li>Direccion guardada para comprar en menos pasos</li>
+        <li>Control de pedidos y facturas en tu perfil</li>
+        <li>Acceso admin segun permisos de cuenta</li>
+      </ul>
+    </div>
+
+    <div class="auth-main">
+      <div class="auth-tabs" role="tablist" aria-label="Acciones de cuenta">
+        <button id="tab-login" class="auth-tab active" type="button" role="tab" aria-selected="true" data-auth-tab="login">Iniciar Sesion</button>
+        <button id="tab-signup" class="auth-tab" type="button" role="tab" aria-selected="false" data-auth-tab="signup">Crear Cuenta</button>
+        <button id="tab-recovery" class="auth-tab" type="button" role="tab" aria-selected="false" data-auth-tab="recovery">Recuperar Acceso</button>
+      </div>
+
+      <form id="login-form" class="form-grid auth-form" data-auth-panel="login">
+        <label>
+          Correo
+          <input id="login-email" name="email" type="email" autocomplete="email" spellcheck="false" required />
+        </label>
+        <label>
+          Contraseña
+          <div class="password-row">
+            <input id="login-password" name="password" type="password" autocomplete="current-password" minlength="6" required />
+            <button id="login-toggle" class="btn secondary pass-toggle" type="button" aria-label="Mostrar u ocultar contraseña">Ver</button>
+          </div>
+        </label>
+        <div class="row" style="grid-column: 1 / -1; justify-content: space-between;">
+          <button id="login-submit" type="submit">Entrar</button>
+          <button type="button" class="btn secondary" data-auth-tab="recovery">Olvide mi contraseña</button>
+        </div>
+      </form>
+
+      <form id="signup-form" class="form-grid auth-form" data-auth-panel="signup" style="display:none;">
+        <label>
+          Correo
+          <input id="signup-email" name="email" type="email" autocomplete="email" spellcheck="false" required />
+        </label>
+        <label>
+          Contraseña (min 6)
+          <div class="password-row">
+            <input id="signup-password" name="password" type="password" autocomplete="new-password" minlength="6" required />
+            <button id="signup-toggle" class="btn secondary pass-toggle" type="button" aria-label="Mostrar u ocultar contraseña">Ver</button>
+          </div>
+        </label>
+        <div class="row" style="grid-column: 1 / -1;">
+          <button id="signup-submit" type="submit">Crear Cuenta</button>
+        </div>
+      </form>
+
+      <form id="recovery-form" class="form-grid auth-form" data-auth-panel="recovery" style="display:none;">
+        <label style="grid-column: 1 / -1;">
+          Correo de Recuperacion
+          <input id="recovery-email" name="email" type="email" autocomplete="email" spellcheck="false" required />
+          <small>Te enviaremos un enlace para restablecer la contraseña.</small>
+        </label>
+        <div class="row" style="grid-column: 1 / -1;">
+          <button id="recovery-submit" type="submit">Enviar Enlace</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section id="profile-panel" class="panel" style="max-width: 760px; margin: 1rem auto; display: none;">
+    <h2 style="margin-top: 0;">Datos de envio</h2>
+    <p id="logged-email" style="margin-top: 0; color: var(--muted);"></p>
+
+    <form id="profile-form" class="form-grid">
+      <label>
+        Nombre completo
+        <input name="full_name" type="text" maxlength="120" />
+      </label>
+      <label>
+        Telefono
+        <input name="phone" type="tel" maxlength="40" />
+      </label>
+      <label style="grid-column: 1 / -1;">
+        Direccion
+        <input name="shipping_address" type="text" maxlength="200" required />
+      </label>
+      <label>
+        Ciudad
+        <input name="shipping_city" type="text" maxlength="100" required />
+      </label>
+      <label>
+        Codigo postal
+        <input name="shipping_postal_code" type="text" maxlength="20" required />
+      </label>
+      <label>
+        Pais
+        <input name="shipping_country" type="text" maxlength="80" value="España" required />
+      </label>
+      <label style="grid-column: 1 / -1;">
+        Notas
+        <textarea name="notes" rows="3" maxlength="500"></textarea>
+      </label>
+      <div class="row" style="grid-column: 1 / -1;">
+        <button type="submit">Guardar perfil</button>
+        <a class="btn secondary" href="/checkout">Ir al checkout</a>
+      </div>
+    </form>
+
+    <p class="alert" id="profile-feedback-2" style="display: none; margin-top: 1rem;" aria-live="polite"></p>
+  </section>
+
+  <script>
+    // @ts-nocheck
+    import { createClient } from '@supabase/supabase-js';
+
+    const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL || '';
+    const supabaseAnonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY || '';
+
+    const statusEl = document.getElementById('profile-status');
+    const authPanel = document.getElementById('auth-panel');
+    const profilePanel = document.getElementById('profile-panel');
+    const feedbackEl = document.getElementById('profile-feedback');
+    const feedbackEl2 = document.getElementById('profile-feedback-2');
+    const loggedEmail = document.getElementById('logged-email');
+
+    const loginForm = document.getElementById('login-form');
+    const signupForm = document.getElementById('signup-form');
+    const profileForm = document.getElementById('profile-form');
+
+    const loginEmail = document.getElementById('login-email');
+    const loginPassword = document.getElementById('login-password');
+    const signupEmail = document.getElementById('signup-email');
+    const signupPassword = document.getElementById('signup-password');
+    const recoveryEmail = document.getElementById('recovery-email');
+
+    const loginSubmit = document.getElementById('login-submit');
+    const signupSubmit = document.getElementById('signup-submit');
+    const recoverySubmit = document.getElementById('recovery-submit');
+
+    const authTabs = Array.from(document.querySelectorAll('[data-auth-tab]'));
+    const authForms = Array.from(document.querySelectorAll('[data-auth-panel]'));
+    const recoveryForm = document.getElementById('recovery-form');
+
+    const loginToggle = document.getElementById('login-toggle');
+    const signupToggle = document.getElementById('signup-toggle');
+
+    const PROFILE_PREFIX = 'elegilsa_profile_';
+    const logoutBtn = document.getElementById('logout-btn');
+    const backLink = document.getElementById('back-link');
+
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get('next') || '/collections/all';
+    backLink?.setAttribute('href', next);
+
+    function setStatus(message) {
+      if (statusEl) statusEl.textContent = message;
+    }
+
+    function setBusy(buttonEl, busy, idleText, busyText = 'Procesando…') {
+      if (!(buttonEl instanceof HTMLButtonElement)) return;
+      buttonEl.disabled = busy;
+      buttonEl.textContent = busy ? busyText : idleText;
+    }
+
+    function setAuthTab(tabName) {
+      authTabs.forEach((tab) => {
+        const active = tab.getAttribute('data-auth-tab') === tabName;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+
+      authForms.forEach((panel) => {
+        const active = panel.getAttribute('data-auth-panel') === tabName;
+        panel.style.display = active ? '' : 'none';
+      });
+    }
+
+    function bindPasswordToggle(toggleButton, inputEl) {
+      if (!(toggleButton instanceof HTMLButtonElement)) return;
+      if (!(inputEl instanceof HTMLInputElement)) return;
+
+      toggleButton.addEventListener('click', () => {
+        const nextType = inputEl.type === 'password' ? 'text' : 'password';
+        inputEl.type = nextType;
+        toggleButton.textContent = nextType === 'password' ? 'Ver' : 'Ocultar';
+      });
+    }
+
+    function showRuntimeError(message) {
+      setStatus(message);
+      if (authPanel) authPanel.style.display = 'none';
+      if (profilePanel) profilePanel.style.display = 'none';
+      [feedbackEl, feedbackEl2].forEach((el) => {
+        if (!el) return;
+        el.textContent = message;
+        el.classList.remove('ok', 'danger');
+        el.classList.add('danger');
+        el.style.display = 'block';
+      });
+    }
+
+    setStatus('Inicializando perfil…');
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      showRuntimeError('Falta configurar PUBLIC_SUPABASE_URL y PUBLIC_SUPABASE_ANON_KEY.');
+    } else {
+      let supabase;
+      try {
+        supabase = createClient(supabaseUrl, supabaseAnonKey, {
+          auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+          },
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Error desconocido al inicializar Supabase.';
+        showRuntimeError(`No se pudo inicializar la sesion: ${reason}`);
+      }
+
+      if (!supabase) {
+        showRuntimeError('No se pudo crear el cliente de sesion.');
+      } else {
+
+    function showFeedback(type, message) {
+      [feedbackEl, feedbackEl2].forEach((el) => {
+        if (!el) return;
+        el.textContent = message;
+        el.classList.remove('ok', 'danger');
+        el.classList.add(type === 'ok' ? 'ok' : 'danger');
+        el.style.display = 'block';
+      });
+    }
+
+    function mapAuthError(errorMessage) {
+      const message = String(errorMessage || '').toLowerCase();
+      if (!message) return 'No se pudo completar la autenticacion.';
+      if (message.includes('invalid login credentials')) {
+        return 'Correo o contraseña incorrectos. Si ya confirmaste tu cuenta, revisa la contraseña o usa Recuperar Acceso.';
+      }
+      if (message.includes('email not confirmed')) {
+        return 'Tu correo aun no esta confirmado. Revisa el enlace de confirmacion enviado por email.';
+      }
+      if (message.includes('too many requests')) {
+        return 'Has hecho demasiados intentos. Espera un momento y vuelve a intentarlo.';
+      }
+      return errorMessage;
+    }
+
+    function isValidEmail(value) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    }
+
+    function profileKey(userId) {
+      return `${PROFILE_PREFIX}${userId}`;
+    }
+
+    function getStoredProfile(userId) {
+      try {
+        const raw = localStorage.getItem(profileKey(userId));
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function setStoredProfile(userId, value) {
+      localStorage.setItem(profileKey(userId), JSON.stringify(value));
+    }
+
+    function setFormFromProfile(user, profile) {
+      if (!(profileForm instanceof HTMLFormElement)) return;
+
+      const fields = [
+        'full_name',
+        'phone',
+        'shipping_address',
+        'shipping_city',
+        'shipping_postal_code',
+        'shipping_country',
+        'notes',
+      ];
+
+      for (const name of fields) {
+        const input = profileForm.elements.namedItem(name);
+        if (input && 'value' in input) {
+          input.value = (profile && profile[name]) || '';
+        }
+      }
+
+      const emailInput = profileForm.elements.namedItem('email');
+      if (emailInput && 'value' in emailInput) {
+        emailInput.value = user?.email || '';
+      }
+    }
+
+    async function syncUi() {
+      const { data, error } = await Promise.race([
+        supabase.auth.getSession(),
+        new Promise((resolve) => setTimeout(() => resolve({ data: { session: null }, error: new Error('timeout') }), 6000)),
+      ]);
+
+      if (error) {
+        setStatus('No se pudo validar la sesion. Revisa la conexion e intenta de nuevo.');
+      }
+
+      const user = data.session?.user ?? null;
+
+      if (!user) {
+        setStatus('No has iniciado sesion. Hazlo para continuar con wishlist y checkout.');
+        if (authPanel) authPanel.style.display = 'block';
+        if (profilePanel) profilePanel.style.display = 'none';
+        if (logoutBtn) logoutBtn.style.display = 'none';
+        localStorage.removeItem('elegilsa_user_logged');
+        return;
+      }
+
+      localStorage.setItem('elegilsa_user_logged', '1');
+      setStatus('Sesion iniciada correctamente.');
+      if (authPanel) authPanel.style.display = 'none';
+      if (profilePanel) profilePanel.style.display = 'block';
+      if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+      if (loggedEmail) {
+        loggedEmail.textContent = `Cuenta: ${user.email || 'Sin correo'}`;
+      }
+
+      const profile = getStoredProfile(user.id);
+      setFormFromProfile(user, profile);
+    }
+
+    loginForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const email = String(loginEmail?.value || '').trim().toLowerCase();
+      const password = String(loginPassword?.value || '');
+
+      setBusy(loginSubmit, true, 'Entrar');
+
+      if (!isValidEmail(email)) {
+        showFeedback('danger', 'Introduce un correo valido.');
+        setBusy(loginSubmit, false, 'Entrar');
+        return;
+      }
+      if (password.length < 6) {
+        showFeedback('danger', 'La contraseña debe tener al menos 6 caracteres.');
+        setBusy(loginSubmit, false, 'Entrar');
+        return;
+      }
+
+      await supabase.auth.signOut({ scope: 'local' });
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        showFeedback('danger', mapAuthError(error.message));
+        setBusy(loginSubmit, false, 'Entrar');
+        return;
+      }
+
+      await syncUi();
+      showFeedback('ok', 'Sesion iniciada correctamente.');
+      setBusy(loginSubmit, false, 'Entrar');
+      if (params.get('next')) {
+        setTimeout(() => {
+          window.location.href = next;
+        }, 250);
+      }
+    });
+
+    signupForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const email = String(signupEmail?.value || '').trim().toLowerCase();
+      const password = String(signupPassword?.value || '');
+
+      setBusy(signupSubmit, true, 'Crear Cuenta');
+
+      if (!isValidEmail(email)) {
+        showFeedback('danger', 'Introduce un correo valido para registrarte.');
+        setBusy(signupSubmit, false, 'Crear Cuenta');
+        return;
+      }
+      if (password.length < 6) {
+        showFeedback('danger', 'La contraseña debe tener al menos 6 caracteres.');
+        setBusy(signupSubmit, false, 'Crear Cuenta');
+        return;
+      }
+
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        showFeedback('danger', `No se pudo crear la cuenta: ${error.message}`);
+        setBusy(signupSubmit, false, 'Crear Cuenta');
+        return;
+      }
+
+      showFeedback('ok', 'Cuenta creada. Revisa tu correo si se requiere confirmacion y luego inicia sesion.');
+      setBusy(signupSubmit, false, 'Crear Cuenta');
+      setAuthTab('login');
+      if (loginEmail instanceof HTMLInputElement) {
+        loginEmail.value = email;
+      }
+    });
+
+    recoveryForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const email = String(recoveryEmail?.value || '').trim().toLowerCase();
+
+      setBusy(recoverySubmit, true, 'Enviar Enlace');
+
+      if (!isValidEmail(email)) {
+        showFeedback('danger', 'Introduce un correo valido para recuperar el acceso.');
+        setBusy(recoverySubmit, false, 'Enviar Enlace');
+        return;
+      }
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/perfil`,
+      });
+
+      if (error) {
+        showFeedback('danger', `No se pudo enviar el enlace: ${error.message}`);
+        setBusy(recoverySubmit, false, 'Enviar Enlace');
+        return;
+      }
+
+      showFeedback('ok', 'Te enviamos un email para restablecer la contraseña.');
+      setBusy(recoverySubmit, false, 'Enviar Enlace');
+    });
+
+    profileForm?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const { data } = await supabase.auth.getSession();
+      const user = data.session?.user;
+      if (!user) {
+        showFeedback('danger', 'Tu sesion ha expirado. Inicia sesion otra vez.');
+        await syncUi();
+        return;
+      }
+
+      const payload = {
+        email: user.email || '',
+        full_name: String(profileForm.elements.namedItem('full_name')?.value || '').trim(),
+        phone: String(profileForm.elements.namedItem('phone')?.value || '').trim(),
+        shipping_address: String(profileForm.elements.namedItem('shipping_address')?.value || '').trim(),
+        shipping_city: String(profileForm.elements.namedItem('shipping_city')?.value || '').trim(),
+        shipping_postal_code: String(profileForm.elements.namedItem('shipping_postal_code')?.value || '').trim(),
+        shipping_country: String(profileForm.elements.namedItem('shipping_country')?.value || '').trim(),
+        notes: String(profileForm.elements.namedItem('notes')?.value || '').trim(),
+      };
+
+      if (!payload.shipping_address || !payload.shipping_city || !payload.shipping_postal_code || !payload.shipping_country) {
+        showFeedback('danger', 'Completa direccion, ciudad, codigo postal y pais.');
+        return;
+      }
+
+      setStoredProfile(user.id, payload);
+      showFeedback('ok', 'Perfil guardado. Tu direccion se usara por defecto en checkout.');
+    });
+
+    logoutBtn?.addEventListener('click', () => {
+      supabase.auth.signOut().then(async () => {
+        localStorage.removeItem('elegilsa_user_logged');
+        await syncUi();
+        showFeedback('ok', 'Sesion cerrada.');
+      });
+    });
+
+        authTabs.forEach((tab) => {
+          tab.addEventListener('click', () => {
+            const tabName = tab.getAttribute('data-auth-tab');
+            if (!tabName) return;
+            setAuthTab(tabName);
+          });
+        });
+
+        bindPasswordToggle(loginToggle, loginPassword);
+        bindPasswordToggle(signupToggle, signupPassword);
+        setAuthTab('login');
+
+        supabase.auth.onAuthStateChange(() => {
+          syncUi();
+        });
+
+        syncUi().catch((error) => {
+          const reason = error instanceof Error ? error.message : 'Error de sincronizacion.';
+          showRuntimeError(`No se pudo cargar el perfil: ${reason}`);
+        });
+      }
+    }
+  </script>
+</Layout>

@@ -1,0 +1,137 @@
+---
+import '../styles/global.css';
+import { getNavigationCategories } from '../lib/store';
+import type { Category } from '../lib/types';
+
+type Props = {
+	title?: string;
+	description?: string;
+};
+
+const {
+	title = 'ELEGILSA | Moda y complementos',
+	description = 'Boutique online de moda con novedades, ofertas y carrito en tiempo real.',
+} = Astro.props;
+
+let navCategories: Category[] = [];
+try {
+	navCategories = await getNavigationCategories();
+} catch {
+	navCategories = [];
+}
+---
+
+<!doctype html>
+<html lang="es">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width" />
+		<meta name="generator" content={Astro.generator} />
+		<meta name="description" content={description} />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap"
+			rel="stylesheet"
+		/>
+		<title>{title}</title>
+	</head>
+	<body>
+		<div class="bg-orb bg-orb-a" aria-hidden="true"></div>
+		<div class="bg-orb bg-orb-b" aria-hidden="true"></div>
+		<div class="bg-grid" aria-hidden="true"></div>
+		<header class="site-header">
+			<div class="top-strip">BIENVENIDA A ELEGILSA</div>
+			<div class="container nav">
+				<a class="brand" href="/">ELEGILSA</a>
+				<nav class="nav-links nav-main">
+					<a href="/">Inicio</a>
+					<details class="nav-dropdown">
+						<summary>Coleccion</summary>
+						<div class="dropdown-panel" role="list">
+							<a role="listitem" href="/collections/all">Todos</a>
+							{
+								navCategories.map((category: any) => (
+									<a role="listitem" href={`/collections/all?category=${encodeURIComponent(category.slug)}`}>{category.name}</a>
+								))
+							}
+						</div>
+					</details>
+					<a href="/collections/all?category=calzado">Calzado</a>
+					<a href="/collections/all?category=accesorios-y-complementos">Accesorios y Complementos</a>
+					<a href="/collections/all?category=liquidacion">LIQUIDACION</a>
+				</nav>
+				<nav class="nav-links nav-actions">
+					<a class="btn secondary" href="/admin">Admin</a>
+					<a class="icon-link" href="/collections/all#catalog-search" aria-label="Buscar">
+						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+							<circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"></circle>
+							<path d="M20 20l-3.7-3.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+						</svg>
+					</a>
+					<a class="icon-link profile-link" href="/perfil" aria-label="Perfil">
+						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+							<circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"></circle>
+							<path d="M4 20c1.8-3.5 5-5 8-5s6.2 1.5 8 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+						</svg>
+					</a>
+					<a class="icon-link" href="/cart" aria-label="Carrito">
+						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+							<path d="M6.5 8h11l-.8 10.1a1 1 0 0 1-1 .9H8.3a1 1 0 0 1-1-.9L6.5 8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+							<path d="M9 8V6.8a3 3 0 0 1 6 0V8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+						</svg>
+					</a>
+					<a class="icon-link" href="/wishlist" aria-label="Wishlist">
+						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+							<path d="M12 21s-6.7-4.35-9.2-8.2C.86 9.85 2 6.2 5.33 5.16c2.17-.68 4.06.15 5.17 1.5 1.11-1.35 3-2.18 5.17-1.5C19 6.2 20.14 9.85 21.2 12.8 18.7 16.65 12 21 12 21z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+						</svg>
+					</a>
+				</nav>
+			</div>
+		</header>
+
+		<main class="container">
+			<slot />
+		</main>
+
+		<footer class="footer">
+			<div class="container">
+				<p><strong>ELEGILSA</strong> · Moda femenina y complementos</p>
+				<p>
+					Instagram: <a href="https://www.instagram.com/elegilsa_?igsh=aGRxa2p2bGFjaHQ5" target="_blank" rel="noreferrer">@elegilsa_</a>
+				</p>
+				<p>
+					© {new Date().getFullYear()} ELEGILSA · <a href="/policies/privacy-policy">Política de privacidad</a>
+				</p>
+			</div>
+		</footer>
+
+		<script is:inline>
+			const revealTargets = document.querySelectorAll('.panel, .card, .cart-item, .hero-card');
+			revealTargets.forEach((el) => el.classList.add('reveal'));
+
+			const observer = new IntersectionObserver(
+				(entries) => {
+					entries.forEach((entry) => {
+						if (entry.isIntersecting) {
+							entry.target.classList.add('in-view');
+							observer.unobserve(entry.target);
+						}
+					});
+				},
+				{ threshold: 0.08 }
+			);
+
+			revealTargets.forEach((el) => observer.observe(el));
+
+			const body = document.body;
+			window.addEventListener('pointermove', (event) => {
+				const x = (event.clientX / window.innerWidth) * 100;
+				const y = (event.clientY / window.innerHeight) * 100;
+				body.style.setProperty('--mouse-x', `${x}%`);
+				body.style.setProperty('--mouse-y', `${y}%`);
+			});
+		</script>
+	</body>
+</html>

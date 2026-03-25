@@ -1,0 +1,60 @@
+---
+import type { Product } from '../lib/types';
+
+type Props = {
+  product: Product;
+};
+
+const { product } = Astro.props as Props;
+
+function normalizeImageUrl(rawUrl: string | null | undefined): string {
+  if (!rawUrl || rawUrl.trim().length === 0) return '/catalogo/placeholder.svg';
+  const value = rawUrl.trim();
+
+  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:')) {
+    return value;
+  }
+
+  if (value.startsWith('/')) return value;
+  return `/${value}`;
+}
+
+const firstImage = normalizeImageUrl(product.product_images?.[0]?.url);
+const firstAlt = product.product_images?.[0]?.alt_text ?? product.name;
+const compareAt = product.compare_at_cents;
+const hasDiscount = typeof compareAt === 'number' && compareAt > product.price_cents;
+const minStock = product.product_variants.length > 0
+  ? Math.min(...product.product_variants.map((variant) => variant.stock))
+  : null;
+const isOutOfStock = minStock === 0;
+const isLowStock = typeof minStock === 'number' && minStock > 0 && minStock <= 3;
+
+function formatEuros(cents: number): string {
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(cents / 100);
+}
+---
+
+<article class="card">
+  <a href={`/products/${product.slug}`} aria-label={`Ver ${product.name}`}>
+    <div class="card-media">
+      <img src={firstImage} alt={firstAlt} loading="lazy" onerror="this.onerror=null;this.src='/catalogo/placeholder.svg';" />
+    </div>
+    <div class="card-body">
+      <h3 class="card-name">{product.name}</h3>
+
+      <p class="price">
+        <span>{formatEuros(product.price_cents)}</span>
+        {hasDiscount && <span class="compare">{formatEuros(compareAt!)}</span>}
+      </p>
+
+      <div class="row">
+        {isOutOfStock && <span class="badge out">Agotado</span>}
+        {hasDiscount && <span class="badge sale">Oferta</span>}
+        {isLowStock && <span class="badge low">Quedan pocas unidades</span>}
+      </div>
+    </div>
+  </a>
+</article>

@@ -1,0 +1,409 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Checkout | ELEGILSA" description="Checkout en 4 pasos con direccion guardada de perfil.">
+  <section class="checkout-wrap">
+    <div class="checkout-header">
+      <h1>Checkout</h1>
+      <p>Completa tu pedido en 4 pasos.</p>
+    </div>
+
+    <div class="stepper" id="checkout-stepper">
+      <button class="step active" type="button" data-step="1">1. Direccion</button>
+      <button class="step" type="button" data-step="2">2. Envio</button>
+      <button class="step" type="button" data-step="3">3. Pago</button>
+      <button class="step" type="button" data-step="4">4. Revisar</button>
+    </div>
+
+    <p id="checkout-auth-note" class="alert danger" style="display: none;">
+      Debes iniciar sesion para usar checkout y recuperar tu direccion de perfil.
+      <a href="/perfil?next=/checkout">Ir a perfil</a>
+    </p>
+
+    <section class="panel checkout-step active" data-checkout-step="1">
+      <h2 style="margin-top: 0;">Direccion de envio</h2>
+      <form id="shipping-form" class="form-grid">
+        <label>
+          Nombre completo
+          <input name="full_name" type="text" maxlength="120" required />
+        </label>
+        <label>
+          Telefono
+          <input name="phone" type="tel" maxlength="40" required />
+        </label>
+        <label style="grid-column: 1 / -1;">
+          Direccion
+          <input name="shipping_address" type="text" maxlength="200" required />
+        </label>
+        <label>
+          Ciudad
+          <input name="shipping_city" type="text" maxlength="100" required />
+        </label>
+        <label>
+          Codigo postal
+          <input name="shipping_postal_code" type="text" maxlength="20" required />
+        </label>
+        <label>
+          Pais
+          <input name="shipping_country" type="text" maxlength="80" required />
+        </label>
+        <label style="grid-column: 1 / -1;">
+          Notas
+          <textarea name="notes" rows="3" maxlength="500"></textarea>
+        </label>
+      </form>
+      <div class="checkout-actions">
+        <span></span>
+        <button type="button" data-next="2">Continuar</button>
+      </div>
+    </section>
+
+    <section class="panel checkout-step" data-checkout-step="2">
+      <h2 style="margin-top: 0;">Metodo de envio</h2>
+      <div class="payment-methods" id="shipping-methods">
+        <label class="radio-tile">
+          <input type="radio" name="shipping_method" value="standard" checked />
+          <div>
+            <strong>Envio estandar</strong>
+            <small>2-4 dias · Gratis</small>
+          </div>
+        </label>
+        <label class="radio-tile">
+          <input type="radio" name="shipping_method" value="express" />
+          <div>
+            <strong>Envio express</strong>
+            <small>24-48h · 4,90 €</small>
+          </div>
+        </label>
+      </div>
+      <div class="checkout-actions">
+        <button type="button" class="btn secondary" data-prev="1">Volver</button>
+        <button type="button" data-next="3">Continuar</button>
+      </div>
+    </section>
+
+    <section class="panel checkout-step" data-checkout-step="3">
+      <h2 style="margin-top: 0;">Metodo de pago</h2>
+      <div class="payment-methods" id="payment-methods">
+        <label class="radio-tile">
+          <input type="radio" name="payment_method" value="card" checked />
+          <div>
+            <strong>Tarjeta</strong>
+            <small>Visa, Mastercard o similar</small>
+          </div>
+        </label>
+        <label class="radio-tile">
+          <input type="radio" name="payment_method" value="bizum" />
+          <div>
+            <strong>Bizum</strong>
+            <small>Pago instantaneo</small>
+          </div>
+        </label>
+        <label class="radio-tile">
+          <input type="radio" name="payment_method" value="transfer" />
+          <div>
+            <strong>Transferencia</strong>
+            <small>Te enviaremos instrucciones por email</small>
+          </div>
+        </label>
+      </div>
+      <div class="checkout-actions">
+        <button type="button" class="btn secondary" data-prev="2">Volver</button>
+        <button type="button" data-next="4">Continuar</button>
+      </div>
+    </section>
+
+    <section class="panel checkout-step" data-checkout-step="4">
+      <h2 style="margin-top: 0;">Revisar pedido</h2>
+
+      <div id="checkout-cart-preview" class="checkout-summary"></div>
+
+      <div class="checkout-summary">
+        <div class="summary-line"><span>Subtotal</span><strong id="sum-subtotal">0,00 €</strong></div>
+        <div class="summary-line"><span>Envio</span><strong id="sum-shipping">0,00 €</strong></div>
+        <div class="summary-line"><span>Total</span><strong id="sum-total">0,00 €</strong></div>
+      </div>
+
+      <div class="checkout-actions">
+        <button type="button" class="btn secondary" data-prev="3">Volver</button>
+        <button id="place-order-btn" type="button">Confirmar pedido</button>
+      </div>
+    </section>
+
+    <p id="checkout-feedback" class="alert" style="display: none; margin-top: 1rem;"></p>
+  </section>
+
+  <script is:inline>
+    const CART_KEY = 'elegilsa_cart_v1';
+    const PROFILE_PREFIX = 'elegilsa_profile_';
+    const ORDERS_KEY = 'elegilsa_orders_v1';
+
+    const shippingForm = document.getElementById('shipping-form');
+    const feedbackEl = document.getElementById('checkout-feedback');
+    const authNoteEl = document.getElementById('checkout-auth-note');
+    const stepButtons = Array.from(document.querySelectorAll('[data-step]'));
+    const stepSections = Array.from(document.querySelectorAll('[data-checkout-step]'));
+
+    const cartPreviewEl = document.getElementById('checkout-cart-preview');
+    const sumSubtotalEl = document.getElementById('sum-subtotal');
+    const sumShippingEl = document.getElementById('sum-shipping');
+    const sumTotalEl = document.getElementById('sum-total');
+    const placeOrderBtn = document.getElementById('place-order-btn');
+
+    let activeStep = 1;
+
+    function formatEuros(cents) {
+      return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((cents || 0) / 100);
+    }
+
+    function showFeedback(type, message) {
+      feedbackEl.textContent = message;
+      feedbackEl.classList.remove('ok', 'danger');
+      feedbackEl.classList.add(type === 'ok' ? 'ok' : 'danger');
+      feedbackEl.style.display = 'block';
+    }
+
+    function readCart() {
+      try {
+        const raw = localStorage.getItem(CART_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function writeCart(items) {
+      localStorage.setItem(CART_KEY, JSON.stringify(items));
+    }
+
+    function normalizeCart(items) {
+      return items.map((item) => {
+        const stock = Math.max(0, Number(item.stock || 0));
+        let quantity = Math.max(0, Number(item.quantity || 0));
+        if (stock > 0) quantity = Math.min(quantity, stock);
+        if (stock === 0) quantity = 0;
+        return { ...item, quantity, stock };
+      }).filter((item) => item.quantity > 0);
+    }
+
+    function getSupabaseUserIdFromStorage() {
+      try {
+        const tokenKey = Object.keys(localStorage).find((key) => key.startsWith('sb-') && key.endsWith('-auth-token'));
+        if (!tokenKey) return null;
+
+        const raw = localStorage.getItem(tokenKey);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+
+        if (parsed?.user?.id) return parsed.user.id;
+        if (parsed?.currentSession?.user?.id) return parsed.currentSession.user.id;
+        if (Array.isArray(parsed) && parsed[0]?.user?.id) return parsed[0].user.id;
+        return null;
+      } catch {
+        return null;
+      }
+    }
+
+    function getCurrentUserId() {
+      return getSupabaseUserIdFromStorage();
+    }
+
+    function getStoredProfile(userId) {
+      if (!userId) return null;
+      try {
+        const raw = localStorage.getItem(`${PROFILE_PREFIX}${userId}`);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function setActiveStep(step) {
+      activeStep = step;
+      stepButtons.forEach((button) => {
+        const buttonStep = Number(button.getAttribute('data-step'));
+        button.classList.toggle('active', buttonStep === activeStep);
+      });
+      stepSections.forEach((section) => {
+        const sectionStep = Number(section.getAttribute('data-checkout-step'));
+        section.classList.toggle('active', sectionStep === activeStep);
+      });
+    }
+
+    function getShippingCost() {
+      const selected = document.querySelector('input[name="shipping_method"]:checked');
+      if (!selected) return 0;
+      return selected.value === 'express' ? 490 : 0;
+    }
+
+    function getPaymentMethod() {
+      const selected = document.querySelector('input[name="payment_method"]:checked');
+      return selected?.value || 'card';
+    }
+
+    function validateStep(step) {
+      if (step === 1) {
+        const requiredNames = ['full_name', 'phone', 'shipping_address', 'shipping_city', 'shipping_postal_code', 'shipping_country'];
+        for (const fieldName of requiredNames) {
+          const input = shippingForm.elements.namedItem(fieldName);
+          const value = String(input?.value || '').trim();
+          if (!value) {
+            showFeedback('danger', 'Completa todos los campos obligatorios de direccion.');
+            return false;
+          }
+        }
+      }
+
+      const cart = normalizeCart(readCart());
+      writeCart(cart);
+      if (cart.length === 0) {
+        showFeedback('danger', 'Tu carrito esta vacio.');
+        return false;
+      }
+
+      const hasBrokenStock = cart.some((item) => item.quantity > item.stock || item.stock <= 0);
+      if (hasBrokenStock) {
+        showFeedback('danger', 'Hay productos sin stock suficiente. Revisa tu carrito antes de continuar.');
+        return false;
+      }
+
+      return true;
+    }
+
+    function renderSummary() {
+      const cart = normalizeCart(readCart());
+      writeCart(cart);
+
+      const subtotal = cart.reduce((acc, item) => acc + (item.unitPriceCents || 0) * item.quantity, 0);
+      const shipping = getShippingCost();
+      const total = subtotal + shipping;
+
+      cartPreviewEl.innerHTML = cart
+        .map((item) => `<div class="summary-line"><span>${item.name} ${item.variantName ? `(${item.variantName})` : ''} x${item.quantity}</span><strong>${formatEuros((item.unitPriceCents || 0) * item.quantity)}</strong></div>`)
+        .join('');
+
+      sumSubtotalEl.textContent = formatEuros(subtotal);
+      sumShippingEl.textContent = formatEuros(shipping);
+      sumTotalEl.textContent = formatEuros(total);
+    }
+
+    function prefillFromProfile() {
+      const userId = getCurrentUserId();
+      if (!userId) {
+        authNoteEl.style.display = 'block';
+        return;
+      }
+
+      authNoteEl.style.display = 'none';
+      const profile = getStoredProfile(userId);
+      if (!profile) return;
+
+      const fields = [
+        'full_name',
+        'phone',
+        'shipping_address',
+        'shipping_city',
+        'shipping_postal_code',
+        'shipping_country',
+        'notes',
+      ];
+
+      for (const fieldName of fields) {
+        const input = shippingForm.elements.namedItem(fieldName);
+        if (input && 'value' in input) {
+          input.value = profile[fieldName] || '';
+        }
+      }
+    }
+
+    document.querySelectorAll('[data-next]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const nextStep = Number(button.getAttribute('data-next'));
+        if (!validateStep(activeStep)) return;
+        setActiveStep(nextStep);
+        renderSummary();
+      });
+    });
+
+    document.querySelectorAll('[data-prev]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const prevStep = Number(button.getAttribute('data-prev'));
+        setActiveStep(prevStep);
+        renderSummary();
+      });
+    });
+
+    document.querySelectorAll('input[name="shipping_method"]').forEach((input) => {
+      input.addEventListener('change', renderSummary);
+    });
+
+    placeOrderBtn?.addEventListener('click', () => {
+      if (!validateStep(4)) return;
+
+      const userId = getCurrentUserId();
+      if (!userId) {
+        showFeedback('danger', 'Debes iniciar sesion para confirmar el pedido.');
+        authNoteEl.style.display = 'block';
+        return;
+      }
+
+      const cart = normalizeCart(readCart());
+      const subtotal = cart.reduce((acc, item) => acc + (item.unitPriceCents || 0) * item.quantity, 0);
+      const shipping = getShippingCost();
+      const total = subtotal + shipping;
+
+      const shippingData = {
+        full_name: String(shippingForm.elements.namedItem('full_name')?.value || '').trim(),
+        phone: String(shippingForm.elements.namedItem('phone')?.value || '').trim(),
+        shipping_address: String(shippingForm.elements.namedItem('shipping_address')?.value || '').trim(),
+        shipping_city: String(shippingForm.elements.namedItem('shipping_city')?.value || '').trim(),
+        shipping_postal_code: String(shippingForm.elements.namedItem('shipping_postal_code')?.value || '').trim(),
+        shipping_country: String(shippingForm.elements.namedItem('shipping_country')?.value || '').trim(),
+        notes: String(shippingForm.elements.namedItem('notes')?.value || '').trim(),
+      };
+
+      localStorage.setItem(`${PROFILE_PREFIX}${userId}`, JSON.stringify({
+        ...shippingData,
+        email: '',
+      }));
+
+      let orders = [];
+      try {
+        const raw = localStorage.getItem(ORDERS_KEY);
+        orders = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(orders)) orders = [];
+      } catch {
+        orders = [];
+      }
+
+      const order = {
+        id: `ELEG-${Date.now()}`,
+        created_at: new Date().toISOString(),
+        user_id: userId,
+        shipping_method: document.querySelector('input[name="shipping_method"]:checked')?.value || 'standard',
+        payment_method: getPaymentMethod(),
+        shipping: shippingData,
+        items: cart,
+        subtotal_cents: subtotal,
+        shipping_cents: shipping,
+        total_cents: total,
+        status: 'pending',
+      };
+
+      orders.unshift(order);
+      localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+      localStorage.removeItem(CART_KEY);
+
+      showFeedback('ok', `Pedido ${order.id} confirmado. Total ${formatEuros(total)}.`);
+      setTimeout(() => {
+        window.location.href = '/collections/all';
+      }, 900);
+    });
+
+    prefillFromProfile();
+    renderSummary();
+    setActiveStep(1);
+  </script>
+</Layout>

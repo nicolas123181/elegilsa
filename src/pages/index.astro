@@ -1,0 +1,36 @@
+---
+import Layout from '../layouts/Layout.astro';
+import ProductCard from '../components/ProductCard.astro';
+import { getFeaturedProducts } from '../lib/store';
+
+const products = await getFeaturedProducts(8);
+---
+
+<Layout
+	title="ELEGILSA | Novedades"
+	description="Descubre las ultimas novedades de ELEGILSA con compra online y carrito en tiempo real."
+>
+	<section class="hero">
+		<div>
+			<h1>Descubre las ultimas novedades</h1>
+			<p>
+				Colecciones con estilo diario, prendas especiales y complementos para elevar cada look. Compra online
+				con total facilidad.
+			</p>
+			<a class="btn" href="/collections/all">Compra aqui</a>
+		</div>
+		<div class="hero-card">
+			<img src="/catalogo/vestido-alma/01.svg" alt="Portada de novedades ELEGILSA" loading="eager" />
+		</div>
+	</section>
+
+	<section>
+		<div class="section-title">
+			<h2>NOVEDADES</h2>
+			<a href="/collections/all">Ver todo</a>
+		</div>
+		<div class="grid">
+			{products.map((product) => <ProductCard product={product} />)}
+		</div>
+	</section>
+</Layout>

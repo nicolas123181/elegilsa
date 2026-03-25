@@ -1,0 +1,111 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ProductCard from '../../components/ProductCard.astro';
+import { getAllProducts, getNavigationCategories } from '../../lib/store';
+
+const params = Astro.url.searchParams;
+
+const page = Number(params.get('page') ?? '1');
+const sortRaw = params.get('sort') ?? 'newest';
+const sort = ['newest', 'price_asc', 'price_desc'].includes(sortRaw) ? (sortRaw as 'newest' | 'price_asc' | 'price_desc') : 'newest';
+const inStockOnly = params.get('in_stock') === '1';
+const minPrice = params.get('min_price') ? Math.round(Number(params.get('min_price')) * 100) : undefined;
+const maxPrice = params.get('max_price') ? Math.round(Number(params.get('max_price')) * 100) : undefined;
+const q = params.get('q') ?? '';
+const categorySlug = params.get('category') ?? '';
+const categories = await getNavigationCategories();
+
+const result = await getAllProducts({
+  page,
+  sort,
+  inStockOnly,
+  minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
+  maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
+  q,
+  categorySlug: categorySlug || undefined,
+  pageSize: 16,
+});
+
+function pageHref(nextPage: number) {
+  const qs = new URLSearchParams(params);
+  qs.set('page', String(nextPage));
+  return `/collections/all?${qs.toString()}`;
+}
+---
+
+<Layout title="Productos | ELEGILSA" description="Coleccion completa de ELEGILSA con filtros por disponibilidad, precio y ordenacion.">
+  <h1>Productos</h1>
+
+  <section class="filters-shell" id="catalog-search">
+    <details class="filters-toggle" open={Boolean(q || categorySlug || inStockOnly || params.get('min_price') || params.get('max_price') || sort !== 'newest')}>
+      <summary>
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 6h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          <path d="M7 12h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          <path d="M10 18h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+        </svg>
+        Filtrar productos
+      </summary>
+
+      <form class="filters" method="get" action="/collections/all">
+        <div>
+          <label for="category">Categoria</label><br />
+          <select id="category" name="category">
+            <option value="" selected={categorySlug.length === 0}>Todas</option>
+            {
+              categories.map((category) => (
+                <option value={category.slug} selected={category.slug === categorySlug}>{category.name}</option>
+              ))
+            }
+          </select>
+        </div>
+
+        <div>
+          <label for="sort">Ordenar por</label><br />
+          <select id="sort" name="sort">
+            <option value="newest" selected={sort === 'newest'}>Mas nuevos</option>
+            <option value="price_asc" selected={sort === 'price_asc'}>Precio: menor a mayor</option>
+            <option value="price_desc" selected={sort === 'price_desc'}>Precio: mayor a menor</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="q">Buscar</label><br />
+          <input id="q" type="search" name="q" value={q} placeholder="Vestido, camiseta, cuña..." />
+        </div>
+
+        <div>
+          <label for="min_price">Precio minimo (€)</label><br />
+          <input id="min_price" type="number" min="0" step="0.01" name="min_price" value={params.get('min_price') ?? ''} />
+        </div>
+
+        <div>
+          <label for="max_price">Precio maximo (€)</label><br />
+          <input id="max_price" type="number" min="0" step="0.01" name="max_price" value={params.get('max_price') ?? ''} />
+        </div>
+
+        <div>
+          <label>
+            <input type="checkbox" name="in_stock" value="1" checked={inStockOnly} /> Solo disponibles
+          </label>
+        </div>
+
+        <div>
+          <button type="submit">Aplicar</button>
+        </div>
+      </form>
+    </details>
+  </section>
+
+  <p><strong>{result.total}</strong> productos</p>
+
+  <div class="grid">
+    {result.products.map((product) => <ProductCard product={product} />)}
+  </div>
+
+  <div class="row" style="margin: 1.2rem 0 2rem; justify-content: center;">
+    {result.page > 1 && <a class="btn secondary" href={pageHref(result.page - 1)}>Pagina anterior</a>}
+    <span>Pagina {result.page} de {result.totalPages}</span>
+    {result.page < result.totalPages && <a class="btn secondary" href={pageHref(result.page + 1)}>Pagina siguiente</a>}
+  </div>
+</Layout>

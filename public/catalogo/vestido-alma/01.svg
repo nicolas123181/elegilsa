@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1800" viewBox="0 0 1400 1800" role="img" aria-labelledby="title desc">
+  <title id="title">Portada Elegilsa</title>
+  <desc id="desc">Imagen de portada para la home</desc>
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f3d8bf"/>
+      <stop offset="100%" stop-color="#d8af90"/>
+    </linearGradient>
+  </defs>
+  <rect width="1400" height="1800" fill="url(#g1)"/>
+  <g opacity="0.9">
+    <circle cx="260" cy="340" r="220" fill="#f9e8d9"/>
+    <circle cx="1080" cy="1440" r="260" fill="#e9c8ac"/>
+  </g>
+  <g fill="none" stroke="#6b4c3a" stroke-width="22" opacity="0.86">
+    <path d="M700 460c120 0 205 86 205 210v480H495V670c0-124 85-210 205-210z"/>
+    <path d="M590 600c34-52 84-78 110-78s76 26 110 78"/>
+  </g>
+  <text x="700" y="1380" text-anchor="middle" font-family="Playfair Display, Georgia, serif" font-size="120" fill="#4f382b">ELEGILSA</text>
+  <text x="700" y="1465" text-anchor="middle" font-family="DM Sans, Segoe UI, sans-serif" font-size="44" fill="#694e3d">Novedades de temporada</text>
+</svg>

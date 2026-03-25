@@ -1,0 +1,1261 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Admin | ELEGILSA" description="Panel de administracion con metricas, catalogo, pedidos e invoices.">
+  <section class="admin-page-head">
+    <div>
+      <h1>Panel Admin</h1>
+      <p>Controla ventas, catalogo, usuarios, pedidos y facturacion desde un unico panel.</p>
+    </div>
+    <div class="admin-head-actions row">
+      <a class="btn secondary" href="/collections/all">Ver tienda</a>
+    </div>
+  </section>
+
+  <div id="admin-auth-gate" class="panel" style="margin-bottom: 1rem;">
+    <h2 style="margin-top: 0;">Acceso de administrador</h2>
+    <p id="admin-auth-status" style="margin: 0; color: var(--muted);">Validando sesion…</p>
+    <div class="row" style="margin-top: 0.7rem;">
+      <a id="admin-login-link" class="btn" href="/perfil?next=/admin">Iniciar sesion</a>
+      <button id="admin-retry-btn" type="button" class="btn secondary">Reintentar</button>
+    </div>
+    <p id="admin-auth-feedback" class="alert" style="display: none; margin-top: 0.9rem;"></p>
+  </div>
+
+  <div id="admin-shell" class="admin-shell" style="display: none;">
+    <aside class="admin-sidebar panel">
+      <h2 class="admin-sidebar-title">Gestion</h2>
+      <nav class="admin-sidebar-nav" id="admin-tabs" aria-label="Secciones de administracion">
+        <a href="#dashboard" data-tab="dashboard" class="active">Dashboard</a>
+        <a href="#products" data-tab="products">Productos</a>
+        <a href="#categories" data-tab="categories">Categorias</a>
+        <a href="#orders" data-tab="orders">Pedidos</a>
+        <a href="#users" data-tab="users">Usuarios</a>
+        <a href="#invoices" data-tab="invoices">Facturas</a>
+      </nav>
+      <div class="admin-logout-form">
+        <button id="admin-logout-btn" type="button" class="btn secondary" style="width: 100%;">Cerrar sesion</button>
+      </div>
+    </aside>
+
+    <div class="admin-content" style="display: grid; gap: 1rem;">
+      <section id="admin-panel-dashboard" class="panel admin-panel">
+        <h2 style="margin-top: 0;">KPIs</h2>
+        <div class="kpi-grid" id="kpi-grid"></div>
+
+        <div class="panel" style="margin-top: 1rem;">
+          <h3 style="margin-top: 0;">Ventas por dia (ultimos 7 dias)</h3>
+          <div class="bar-chart" id="sales-bar-chart"></div>
+        </div>
+
+        <div class="panel" style="margin-top: 1rem;">
+          <h3 style="margin-top: 0;">Productos mas vendidos</h3>
+          <div class="table-wrap">
+            <table class="admin-table" id="top-products-table">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Unidades</th>
+                  <th>Facturacion</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="admin-panel-products" class="panel admin-panel" style="display: none;">
+        <div class="admin-page-head" style="margin-bottom: 0.6rem;">
+          <div>
+            <h2 style="margin: 0;">Productos</h2>
+            <p style="margin: 0.2rem 0 0; color: var(--muted);">Crear, editar y eliminar. No se permite borrar productos con ventas.</p>
+          </div>
+          <button id="create-product-btn" type="button">Nuevo producto</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="admin-table" id="products-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Slug</th>
+                <th>Categoria</th>
+                <th>Precio</th>
+                <th>Stock</th>
+                <th>Activo</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="admin-panel-categories" class="panel admin-panel" style="display: none;">
+        <div class="admin-page-head" style="margin-bottom: 0.6rem;">
+          <div>
+            <h2 style="margin: 0;">Categorias</h2>
+            <p style="margin: 0.2rem 0 0; color: var(--muted);">Gestiona la estructura del catalogo.</p>
+          </div>
+          <button id="create-category-btn" type="button">Nueva categoria</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="admin-table" id="categories-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Slug</th>
+                <th>Descripcion</th>
+                <th>Productos</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="admin-panel-orders" class="panel admin-panel" style="display: none;">
+        <h2 style="margin-top: 0;">Pedidos</h2>
+        <div class="table-wrap">
+          <table class="admin-table" id="orders-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Fecha</th>
+                <th>Cliente</th>
+                <th>Total</th>
+                <th>Estado</th>
+                <th>Devolucion</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="admin-panel-users" class="panel admin-panel" style="display: none;">
+        <h2 style="margin-top: 0;">Usuarios</h2>
+        <div class="table-wrap">
+          <table class="admin-table" id="users-table">
+            <thead>
+              <tr>
+                <th>Usuario</th>
+                <th>Pedidos</th>
+                <th>Gasto total</th>
+                <th>Ultimo pedido</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="admin-panel-invoices" class="panel admin-panel" style="display: none;">
+        <div class="admin-page-head" style="margin-bottom: 0.6rem;">
+          <div>
+            <h2 style="margin: 0;">Facturas</h2>
+            <p style="margin: 0.2rem 0 0; color: var(--muted);">Genera y descarga facturas para tus pedidos.</p>
+          </div>
+          <button id="refresh-invoices-btn" type="button" class="btn secondary">Actualizar</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="admin-table" id="invoices-table">
+            <thead>
+              <tr>
+                <th>Factura</th>
+                <th>Pedido</th>
+                <th>Fecha</th>
+                <th>Total</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <dialog id="product-modal" class="admin-modal" aria-label="Editor de producto">
+    <section class="panel admin-modal-panel">
+      <h2 id="product-modal-title" style="margin-top: 0;">Nuevo producto</h2>
+      <form id="product-form" class="form-grid">
+        <input type="hidden" name="id" />
+        <input type="hidden" name="variant_id" />
+        <input type="hidden" name="image_id" />
+
+        <label>
+          Nombre
+          <input name="name" type="text" maxlength="140" required autocomplete="off" />
+        </label>
+        <label>
+          Slug
+          <input name="slug" type="text" maxlength="180" required autocomplete="off" />
+        </label>
+        <label>
+          Categoria
+          <select name="category_id" required></select>
+        </label>
+        <label>
+          Precio (€)
+          <input name="price" type="number" min="0" step="0.01" required inputmode="decimal" />
+        </label>
+        <label>
+          Precio anterior (€)
+          <input name="compare_price" type="number" min="0" step="0.01" inputmode="decimal" />
+        </label>
+        <label>
+          Stock
+          <input name="stock" type="number" min="0" step="1" required inputmode="numeric" />
+        </label>
+        <label style="grid-column: 1 / -1;">
+          Descripcion
+          <textarea name="description" rows="3" maxlength="1200"></textarea>
+        </label>
+        <label style="grid-column: 1 / -1;">
+          Imagen principal (URL)
+          <input name="image_url" type="url" maxlength="500" autocomplete="off" />
+        </label>
+        <div class="row admin-check-row" style="grid-column: 1 / -1;">
+          <label class="checkbox-line compact">
+            <input name="is_active" type="checkbox" checked />
+            Activo
+          </label>
+          <label class="checkbox-line compact">
+            <input name="featured" type="checkbox" />
+            Destacado
+          </label>
+        </div>
+
+        <div class="checkout-actions" style="grid-column: 1 / -1;">
+          <button type="button" class="btn secondary" id="product-cancel-btn">Cancelar</button>
+          <button type="submit" id="product-save-btn">Guardar producto</button>
+        </div>
+      </form>
+      <p id="product-form-feedback" class="alert" style="display: none; margin-top: 0.8rem;"></p>
+    </section>
+  </dialog>
+
+  <dialog id="category-modal" class="admin-modal" aria-label="Editor de categoria">
+    <section class="panel admin-modal-panel">
+      <h2 id="category-modal-title" style="margin-top: 0;">Nueva categoria</h2>
+      <form id="category-form" class="form-grid">
+        <input type="hidden" name="id" />
+
+        <label>
+          Nombre
+          <input name="name" type="text" maxlength="100" required autocomplete="off" />
+        </label>
+        <label>
+          Slug
+          <input name="slug" type="text" maxlength="140" required autocomplete="off" />
+        </label>
+        <label style="grid-column: 1 / -1;">
+          Descripcion
+          <textarea name="description" rows="3" maxlength="500"></textarea>
+        </label>
+
+        <div class="checkout-actions" style="grid-column: 1 / -1;">
+          <button type="button" class="btn secondary" id="category-cancel-btn">Cancelar</button>
+          <button type="submit" id="category-save-btn">Guardar categoria</button>
+        </div>
+      </form>
+      <p id="category-form-feedback" class="alert" style="display: none; margin-top: 0.8rem;"></p>
+    </section>
+  </dialog>
+
+  <p id="admin-global-feedback" class="alert" style="display: none; margin-top: 1rem;"></p>
+
+  <script>
+    // @ts-nocheck
+    import { createClient } from '@supabase/supabase-js';
+
+    const SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = import.meta.env.PUBLIC_SUPABASE_ANON_KEY || '';
+    const ADMIN_EMAILS = String(import.meta.env.PUBLIC_ADMIN_EMAILS || '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+
+    const ORDERS_KEY = 'elegilsa_orders_v1';
+    const INVOICES_KEY = 'elegilsa_invoices_v1';
+    const RETURNS_KEY = 'elegilsa_returns_v1';
+
+    const authGate = document.getElementById('admin-auth-gate');
+    const authStatus = document.getElementById('admin-auth-status');
+    const authFeedback = document.getElementById('admin-auth-feedback');
+    const retryBtn = document.getElementById('admin-retry-btn');
+    const adminShell = document.getElementById('admin-shell');
+    const globalFeedback = document.getElementById('admin-global-feedback');
+
+    const kpiGrid = document.getElementById('kpi-grid');
+    const barChart = document.getElementById('sales-bar-chart');
+
+    const topProductsTableBody = document.querySelector('#top-products-table tbody');
+    const productsTableBody = document.querySelector('#products-table tbody');
+    const categoriesTableBody = document.querySelector('#categories-table tbody');
+    const ordersTableBody = document.querySelector('#orders-table tbody');
+    const usersTableBody = document.querySelector('#users-table tbody');
+    const invoicesTableBody = document.querySelector('#invoices-table tbody');
+
+    const productModal = document.getElementById('product-modal');
+    const productModalTitle = document.getElementById('product-modal-title');
+    const productForm = document.getElementById('product-form');
+    const productFormFeedback = document.getElementById('product-form-feedback');
+    const createProductBtn = document.getElementById('create-product-btn');
+    const productCancelBtn = document.getElementById('product-cancel-btn');
+
+    const categoryModal = document.getElementById('category-modal');
+    const categoryModalTitle = document.getElementById('category-modal-title');
+    const categoryForm = document.getElementById('category-form');
+    const categoryFormFeedback = document.getElementById('category-form-feedback');
+    const createCategoryBtn = document.getElementById('create-category-btn');
+    const categoryCancelBtn = document.getElementById('category-cancel-btn');
+
+    const refreshInvoicesBtn = document.getElementById('refresh-invoices-btn');
+    const logoutBtn = document.getElementById('admin-logout-btn');
+
+    const tabs = Array.from(document.querySelectorAll('[data-tab]'));
+    const panels = {
+      dashboard: document.getElementById('admin-panel-dashboard'),
+      products: document.getElementById('admin-panel-products'),
+      categories: document.getElementById('admin-panel-categories'),
+      orders: document.getElementById('admin-panel-orders'),
+      users: document.getElementById('admin-panel-users'),
+      invoices: document.getElementById('admin-panel-invoices'),
+    };
+
+    let supabase = null;
+    let currentUser = null;
+    let categories = [];
+    let products = [];
+
+    function setAuthStatus(message) {
+      if (authStatus) authStatus.textContent = message;
+    }
+
+    function showBootstrapError(message) {
+      setAuthStatus(message);
+      showAlert(authFeedback, 'danger', message);
+      if (adminShell) adminShell.style.display = 'none';
+      if (authGate) authGate.style.display = 'block';
+    }
+
+    function formatMoney(cents) {
+      return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((Number(cents) || 0) / 100);
+    }
+
+    function formatDate(iso) {
+      if (!iso) return '—';
+      return new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
+    }
+
+    function toSlug(value) {
+      return String(value || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[^\w\s-]/g, '')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-');
+    }
+
+    function euroToCents(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 0) return 0;
+      return Math.round(n * 100);
+    }
+
+    function showAlert(target, type, message) {
+      if (!target) return;
+      target.textContent = message;
+      target.classList.remove('ok', 'danger');
+      target.classList.add(type === 'ok' ? 'ok' : 'danger');
+      target.style.display = 'block';
+    }
+
+    function hideAlert(target) {
+      if (!target) return;
+      target.style.display = 'none';
+    }
+
+    function showGlobal(type, message) {
+      showAlert(globalFeedback, type, message);
+    }
+
+    function readLocalArray(key) {
+      try {
+        const raw = localStorage.getItem(key);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function writeLocalArray(key, value) {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+
+    function isAdminEmail(email) {
+      if (!email) return false;
+      if (ADMIN_EMAILS.length === 0) return true;
+      return ADMIN_EMAILS.includes(String(email).trim().toLowerCase());
+    }
+
+    function setTab(tab) {
+      tabs.forEach((entry) => {
+        const isActive = entry.getAttribute('data-tab') === tab;
+        entry.classList.toggle('active', isActive);
+      });
+
+      Object.entries(panels).forEach(([name, panel]) => {
+        if (!panel) return;
+        panel.style.display = name === tab ? 'block' : 'none';
+      });
+    }
+
+    function getCategoryName(categoryId) {
+      const match = categories.find((entry) => Number(entry.id) === Number(categoryId));
+      return match ? match.name : 'Sin categoria';
+    }
+
+    function getPrimaryVariant(product) {
+      const variants = Array.isArray(product.product_variants) ? product.product_variants : [];
+      return variants.find((variant) => variant.is_active) || variants[0] || null;
+    }
+
+    function getPrimaryImageUrl(product) {
+      const images = Array.isArray(product.product_images) ? product.product_images : [];
+      const sorted = [...images].sort((a, b) => (a.position || 0) - (b.position || 0));
+      return sorted[0]?.url || '/catalogo/placeholder.svg';
+    }
+
+    async function ensureCatalogLoaded() {
+      const categoriesResult = await supabase
+        .from('categories')
+        .select('id,slug,name,description,created_at')
+        .order('name', { ascending: true });
+
+      if (categoriesResult.error) {
+        throw categoriesResult.error;
+      }
+
+      const productsResult = await supabase
+        .from('products')
+        .select('id,category_id,slug,name,description,price_cents,compare_at_cents,featured,is_active,created_at,product_variants(id,name,stock,price_cents,is_active,position),product_images(id,url,alt_text,position)')
+        .order('created_at', { ascending: false });
+
+      if (productsResult.error) {
+        throw productsResult.error;
+      }
+
+      categories = categoriesResult.data || [];
+      products = productsResult.data || [];
+    }
+
+    function buildSalesByDay(orders) {
+      const buckets = [];
+      const now = new Date();
+
+      for (let i = 6; i >= 0; i -= 1) {
+        const day = new Date(now);
+        day.setHours(0, 0, 0, 0);
+        day.setDate(day.getDate() - i);
+        const key = day.toISOString().slice(0, 10);
+        buckets.push({ key, label: new Intl.DateTimeFormat('es-ES', { weekday: 'short' }).format(day), cents: 0 });
+      }
+
+      for (const order of orders) {
+        const key = String(order.created_at || '').slice(0, 10);
+        const bucket = buckets.find((entry) => entry.key === key);
+        if (!bucket) continue;
+        if (order.status === 'cancelled') continue;
+        bucket.cents += Number(order.total_cents) || 0;
+      }
+
+      return buckets;
+    }
+
+    function computeTopProducts(orders) {
+      const summary = new Map();
+      for (const order of orders) {
+        const items = Array.isArray(order.items) ? order.items : [];
+        for (const item of items) {
+          const id = String(item.productId || item.product_id || item.slug || item.name || 'desconocido');
+          const name = String(item.name || item.product_name || item.slug || 'Producto');
+          const quantity = Number(item.quantity) || 0;
+          const revenue = (Number(item.unitPriceCents) || 0) * quantity;
+
+          const prev = summary.get(id) || { name, quantity: 0, revenue: 0 };
+          prev.quantity += quantity;
+          prev.revenue += revenue;
+          summary.set(id, prev);
+        }
+      }
+
+      return [...summary.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 8);
+    }
+
+    function renderDashboard() {
+      const orders = readLocalArray(ORDERS_KEY);
+      const returns = readLocalArray(RETURNS_KEY);
+      const topProducts = computeTopProducts(orders);
+
+      const customers = new Set(orders.map((order) => String(order.user_id || 'anon')));
+      const revenue = orders.reduce((acc, order) => (order.status === 'cancelled' ? acc : acc + (Number(order.total_cents) || 0)), 0);
+      const acceptedReturns = returns.filter((entry) => entry.status === 'accepted').length;
+      const returnRate = returns.length === 0 ? 0 : Math.round((acceptedReturns / returns.length) * 100);
+
+      const cards = [
+        { label: 'Clientes', value: customers.size },
+        { label: 'Pedidos', value: orders.length },
+        { label: 'Facturacion', value: formatMoney(revenue) },
+        { label: 'Tasa devoluciones aceptadas', value: `${returnRate}%` },
+      ];
+
+      kpiGrid.innerHTML = cards
+        .map((item) => `<article class="panel"><h3>${item.label}</h3><p>${item.value}</p></article>`)
+        .join('');
+
+      const bars = buildSalesByDay(orders);
+      const peak = Math.max(...bars.map((bar) => bar.cents), 1);
+      barChart.innerHTML = bars
+        .map((bar) => {
+          const height = Math.max(8, Math.round((bar.cents / peak) * 180));
+          return `<article class="bar-item"><div class="bar bar-paid" style="height:${height}px"></div><strong class="bar-value">${formatMoney(bar.cents)}</strong><span class="bar-label">${bar.label}</span></article>`;
+        })
+        .join('');
+
+      topProductsTableBody.innerHTML = topProducts.length
+        ? topProducts
+            .map((item) => `<tr><td>${item.name}</td><td>${item.quantity}</td><td>${formatMoney(item.revenue)}</td></tr>`)
+            .join('')
+        : '<tr><td colspan="3">No hay ventas registradas todavia.</td></tr>';
+    }
+
+    function renderProductsTable() {
+      productsTableBody.innerHTML = products.length
+        ? products
+            .map((product) => {
+              const variant = getPrimaryVariant(product);
+              return `<tr>
+                <td>${product.name}</td>
+                <td>${product.slug}</td>
+                <td>${getCategoryName(product.category_id)}</td>
+                <td>${formatMoney(product.price_cents)}</td>
+                <td>${variant ? Number(variant.stock) || 0 : 0}</td>
+                <td>${product.is_active ? 'Si' : 'No'}</td>
+                <td>
+                  <div class="row">
+                    <button type="button" class="btn secondary" data-action="edit-product" data-id="${product.id}">Editar</button>
+                    <button type="button" class="btn secondary" data-action="delete-product" data-id="${product.id}">Eliminar</button>
+                  </div>
+                </td>
+              </tr>`;
+            })
+            .join('')
+        : '<tr><td colspan="7">No hay productos.</td></tr>';
+    }
+
+    function renderCategoriesTable() {
+      categoriesTableBody.innerHTML = categories.length
+        ? categories
+            .map((category) => {
+              const total = products.filter((product) => Number(product.category_id) === Number(category.id)).length;
+              return `<tr>
+                <td>${category.name}</td>
+                <td>${category.slug}</td>
+                <td>${category.description || '—'}</td>
+                <td>${total}</td>
+                <td>
+                  <div class="row">
+                    <button type="button" class="btn secondary" data-action="edit-category" data-id="${category.id}">Editar</button>
+                    <button type="button" class="btn secondary" data-action="delete-category" data-id="${category.id}">Eliminar</button>
+                  </div>
+                </td>
+              </tr>`;
+            })
+            .join('')
+        : '<tr><td colspan="5">No hay categorias.</td></tr>';
+    }
+
+    function renderOrdersTable() {
+      const orders = readLocalArray(ORDERS_KEY);
+      const returns = readLocalArray(RETURNS_KEY);
+
+      ordersTableBody.innerHTML = orders.length
+        ? orders
+            .map((order) => {
+              const returnInfo = returns.find((entry) => entry.order_id === order.id);
+              return `<tr>
+                <td>${order.id}</td>
+                <td>${formatDate(order.created_at)}</td>
+                <td>${order.shipping?.full_name || order.user_id || 'Sin dato'}</td>
+                <td>${formatMoney(order.total_cents)}</td>
+                <td>
+                  <select data-action="order-status" data-id="${order.id}" aria-label="Estado del pedido ${order.id}">
+                    <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>Pendiente</option>
+                    <option value="paid" ${order.status === 'paid' ? 'selected' : ''}>Pagado</option>
+                    <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelado</option>
+                    <option value="refunded" ${order.status === 'refunded' ? 'selected' : ''}>Reembolsado</option>
+                  </select>
+                </td>
+                <td>
+                  ${returnInfo ? `
+                    <select data-action="return-status" data-id="${order.id}" aria-label="Estado de devolucion ${order.id}">
+                      <option value="requested" ${returnInfo.status === 'requested' ? 'selected' : ''}>Solicitada</option>
+                      <option value="accepted" ${returnInfo.status === 'accepted' ? 'selected' : ''}>Aceptada</option>
+                      <option value="rejected" ${returnInfo.status === 'rejected' ? 'selected' : ''}>Rechazada</option>
+                    </select>
+                  ` : 'No solicitada'}
+                </td>
+                <td>
+                  <div class="row">
+                    <button type="button" class="btn secondary" data-action="invoice-order" data-id="${order.id}">Factura</button>
+                    <button type="button" class="btn secondary" data-action="request-return" data-id="${order.id}">Devolucion</button>
+                  </div>
+                </td>
+              </tr>`;
+            })
+            .join('')
+        : '<tr><td colspan="7">No hay pedidos registrados.</td></tr>';
+    }
+
+    function renderUsersTable() {
+      const orders = readLocalArray(ORDERS_KEY);
+      const grouped = new Map();
+
+      for (const order of orders) {
+        const key = String(order.user_id || order.shipping?.email || order.shipping?.full_name || 'anonimo');
+        const prev = grouped.get(key) || {
+          name: order.shipping?.full_name || key,
+          orders: 0,
+          total: 0,
+          last: null,
+        };
+        prev.orders += 1;
+        prev.total += Number(order.total_cents) || 0;
+        if (!prev.last || new Date(order.created_at) > new Date(prev.last)) {
+          prev.last = order.created_at;
+        }
+        grouped.set(key, prev);
+      }
+
+      const rows = [...grouped.values()].sort((a, b) => b.total - a.total);
+      usersTableBody.innerHTML = rows.length
+        ? rows
+            .map((user) => `<tr><td>${user.name}</td><td>${user.orders}</td><td>${formatMoney(user.total)}</td><td>${formatDate(user.last)}</td></tr>`)
+            .join('')
+        : '<tr><td colspan="4">No hay usuarios con pedidos.</td></tr>';
+    }
+
+    function downloadText(filename, content) {
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function ensureInvoice(order) {
+      const invoices = readLocalArray(INVOICES_KEY);
+      const existing = invoices.find((invoice) => invoice.order_id === order.id);
+      if (existing) return existing;
+
+      const invoice = {
+        id: `FAC-${Date.now()}`,
+        order_id: order.id,
+        created_at: new Date().toISOString(),
+        total_cents: Number(order.total_cents) || 0,
+        customer: order.shipping?.full_name || order.user_id || 'Cliente',
+      };
+
+      invoices.unshift(invoice);
+      writeLocalArray(INVOICES_KEY, invoices);
+      return invoice;
+    }
+
+    function renderInvoicesTable() {
+      const invoices = readLocalArray(INVOICES_KEY);
+
+      invoicesTableBody.innerHTML = invoices.length
+        ? invoices
+            .map((invoice) => `<tr>
+              <td>${invoice.id}</td>
+              <td>${invoice.order_id}</td>
+              <td>${formatDate(invoice.created_at)}</td>
+              <td>${formatMoney(invoice.total_cents)}</td>
+              <td>
+                <button type="button" class="btn secondary" data-action="download-invoice" data-id="${invoice.id}">Descargar</button>
+              </td>
+            </tr>`)
+            .join('')
+        : '<tr><td colspan="5">No hay facturas creadas.</td></tr>';
+    }
+
+    function populateCategorySelect() {
+      const select = productForm?.elements?.namedItem('category_id');
+      if (!(select instanceof HTMLSelectElement)) return;
+
+      select.innerHTML = categories
+        .map((category) => `<option value="${category.id}">${category.name}</option>`)
+        .join('');
+    }
+
+    function resetProductForm() {
+      productForm.reset();
+      productForm.elements.namedItem('id').value = '';
+      productForm.elements.namedItem('variant_id').value = '';
+      productForm.elements.namedItem('image_id').value = '';
+      productForm.elements.namedItem('is_active').checked = true;
+      productForm.elements.namedItem('featured').checked = false;
+      hideAlert(productFormFeedback);
+      productModalTitle.textContent = 'Nuevo producto';
+      populateCategorySelect();
+    }
+
+    function openProductModal(productId = null) {
+      resetProductForm();
+      if (productId) {
+        const product = products.find((entry) => String(entry.id) === String(productId));
+        if (!product) return;
+
+        const variant = getPrimaryVariant(product);
+        const image = (product.product_images || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0))[0] || null;
+
+        productModalTitle.textContent = `Editar: ${product.name}`;
+        productForm.elements.namedItem('id').value = String(product.id);
+        productForm.elements.namedItem('variant_id').value = variant?.id || '';
+        productForm.elements.namedItem('image_id').value = image?.id || '';
+        productForm.elements.namedItem('name').value = product.name || '';
+        productForm.elements.namedItem('slug').value = product.slug || '';
+        productForm.elements.namedItem('category_id').value = String(product.category_id || '');
+        productForm.elements.namedItem('price').value = String((Number(product.price_cents) || 0) / 100);
+        productForm.elements.namedItem('compare_price').value = product.compare_at_cents ? String(Number(product.compare_at_cents) / 100) : '';
+        productForm.elements.namedItem('stock').value = String(variant ? Number(variant.stock) || 0 : 0);
+        productForm.elements.namedItem('description').value = product.description || '';
+        productForm.elements.namedItem('image_url').value = image?.url || '';
+        productForm.elements.namedItem('is_active').checked = Boolean(product.is_active);
+        productForm.elements.namedItem('featured').checked = Boolean(product.featured);
+      }
+
+      productModal.showModal();
+    }
+
+    function resetCategoryForm() {
+      categoryForm.reset();
+      categoryForm.elements.namedItem('id').value = '';
+      hideAlert(categoryFormFeedback);
+      categoryModalTitle.textContent = 'Nueva categoria';
+    }
+
+    function openCategoryModal(categoryId = null) {
+      resetCategoryForm();
+      if (categoryId) {
+        const category = categories.find((entry) => String(entry.id) === String(categoryId));
+        if (!category) return;
+
+        categoryModalTitle.textContent = `Editar: ${category.name}`;
+        categoryForm.elements.namedItem('id').value = String(category.id);
+        categoryForm.elements.namedItem('name').value = category.name || '';
+        categoryForm.elements.namedItem('slug').value = category.slug || '';
+        categoryForm.elements.namedItem('description').value = category.description || '';
+      }
+      categoryModal.showModal();
+    }
+
+    function hasLocalSales(productId) {
+      const orders = readLocalArray(ORDERS_KEY);
+      return orders.some((order) => (order.items || []).some((item) => String(item.productId || item.product_id) === String(productId)));
+    }
+
+    async function hasRemoteSales(productId) {
+      const { count, error } = await supabase
+        .from('order_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('product_id', productId);
+
+      if (error) {
+        return false;
+      }
+
+      return (count || 0) > 0;
+    }
+
+    async function deleteProduct(productId) {
+      if (hasLocalSales(productId) || (await hasRemoteSales(productId))) {
+        showGlobal('danger', 'No puedes borrar un producto con ventas asociadas.');
+        return;
+      }
+
+      const { error: imgError } = await supabase.from('product_images').delete().eq('product_id', productId);
+      if (imgError) {
+        showGlobal('danger', `No se pudo borrar imagenes: ${imgError.message}`);
+        return;
+      }
+
+      const { error: variantError } = await supabase.from('product_variants').delete().eq('product_id', productId);
+      if (variantError) {
+        showGlobal('danger', `No se pudieron borrar variantes: ${variantError.message}`);
+        return;
+      }
+
+      const { error: productError } = await supabase.from('products').delete().eq('id', productId);
+      if (productError) {
+        showGlobal('danger', `No se pudo borrar el producto: ${productError.message}`);
+        return;
+      }
+
+      await refreshAll();
+      showGlobal('ok', 'Producto eliminado.');
+    }
+
+    async function saveProduct(event) {
+      event.preventDefault();
+      hideAlert(productFormFeedback);
+
+      const id = String(productForm.elements.namedItem('id').value || '').trim();
+      const variantId = String(productForm.elements.namedItem('variant_id').value || '').trim();
+      const imageId = String(productForm.elements.namedItem('image_id').value || '').trim();
+
+      const name = String(productForm.elements.namedItem('name').value || '').trim();
+      const slugInput = String(productForm.elements.namedItem('slug').value || '').trim();
+      const slug = toSlug(slugInput || name);
+      const description = String(productForm.elements.namedItem('description').value || '').trim();
+      const categoryId = Number(productForm.elements.namedItem('category_id').value || 0);
+      const priceCents = euroToCents(productForm.elements.namedItem('price').value);
+      const comparePriceRaw = String(productForm.elements.namedItem('compare_price').value || '').trim();
+      const compareAtCents = comparePriceRaw ? euroToCents(comparePriceRaw) : null;
+      const stock = Math.max(0, Math.round(Number(productForm.elements.namedItem('stock').value || 0)));
+      const imageUrl = String(productForm.elements.namedItem('image_url').value || '').trim();
+      const isActive = Boolean(productForm.elements.namedItem('is_active').checked);
+      const featured = Boolean(productForm.elements.namedItem('featured').checked);
+
+      if (!name || !slug || !Number.isFinite(categoryId) || categoryId <= 0) {
+        showAlert(productFormFeedback, 'danger', 'Completa nombre, slug y categoria.');
+        return;
+      }
+
+      const productPayload = {
+        category_id: categoryId,
+        slug,
+        name,
+        description: description || null,
+        price_cents: priceCents,
+        compare_at_cents: compareAtCents,
+        is_active: isActive,
+        featured,
+      };
+
+      let productId = id;
+
+      if (productId) {
+        const { error } = await supabase.from('products').update(productPayload).eq('id', productId);
+        if (error) {
+          showAlert(productFormFeedback, 'danger', `No se pudo actualizar: ${error.message}`);
+          return;
+        }
+      } else {
+        const { data, error } = await supabase.from('products').insert(productPayload).select('id').single();
+        if (error || !data) {
+          showAlert(productFormFeedback, 'danger', `No se pudo crear: ${error?.message || 'sin respuesta'}`);
+          return;
+        }
+        productId = data.id;
+      }
+
+      if (variantId) {
+        const { error } = await supabase
+          .from('product_variants')
+          .update({ stock, name: 'Principal', is_active: true, price_cents: null, position: 1 })
+          .eq('id', variantId)
+          .eq('product_id', productId);
+        if (error) {
+          showAlert(productFormFeedback, 'danger', `No se pudo actualizar stock: ${error.message}`);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from('product_variants').insert({
+          product_id: productId,
+          name: 'Principal',
+          color_name: null,
+          color_hex: null,
+          size_label: null,
+          price_cents: null,
+          stock,
+          is_active: true,
+          position: 1,
+        });
+        if (error) {
+          showAlert(productFormFeedback, 'danger', `No se pudo crear variante: ${error.message}`);
+          return;
+        }
+      }
+
+      if (imageUrl) {
+        if (imageId) {
+          const { error } = await supabase.from('product_images').update({ url: imageUrl, position: 1 }).eq('id', imageId).eq('product_id', productId);
+          if (error) {
+            showAlert(productFormFeedback, 'danger', `No se pudo actualizar imagen: ${error.message}`);
+            return;
+          }
+        } else {
+          const { error } = await supabase.from('product_images').insert({
+            product_id: productId,
+            url: imageUrl,
+            alt_text: name,
+            position: 1,
+          });
+          if (error) {
+            showAlert(productFormFeedback, 'danger', `No se pudo crear imagen: ${error.message}`);
+            return;
+          }
+        }
+      }
+
+      await refreshAll();
+      showAlert(productFormFeedback, 'ok', 'Producto guardado correctamente.');
+      setTimeout(() => productModal.close(), 400);
+    }
+
+    async function saveCategory(event) {
+      event.preventDefault();
+      hideAlert(categoryFormFeedback);
+
+      const id = String(categoryForm.elements.namedItem('id').value || '').trim();
+      const name = String(categoryForm.elements.namedItem('name').value || '').trim();
+      const slugInput = String(categoryForm.elements.namedItem('slug').value || '').trim();
+      const slug = toSlug(slugInput || name);
+      const description = String(categoryForm.elements.namedItem('description').value || '').trim();
+
+      if (!name || !slug) {
+        showAlert(categoryFormFeedback, 'danger', 'Completa nombre y slug.');
+        return;
+      }
+
+      const payload = { name, slug, description: description || null };
+
+      if (id) {
+        const { error } = await supabase.from('categories').update(payload).eq('id', id);
+        if (error) {
+          showAlert(categoryFormFeedback, 'danger', `No se pudo actualizar categoria: ${error.message}`);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from('categories').insert(payload);
+        if (error) {
+          showAlert(categoryFormFeedback, 'danger', `No se pudo crear categoria: ${error.message}`);
+          return;
+        }
+      }
+
+      await refreshAll();
+      showAlert(categoryFormFeedback, 'ok', 'Categoria guardada.');
+      setTimeout(() => categoryModal.close(), 400);
+    }
+
+    async function deleteCategory(categoryId) {
+      const linkedProducts = products.some((product) => Number(product.category_id) === Number(categoryId));
+      if (linkedProducts) {
+        showGlobal('danger', 'No puedes borrar una categoria que tiene productos asociados.');
+        return;
+      }
+
+      const { error } = await supabase.from('categories').delete().eq('id', categoryId);
+      if (error) {
+        showGlobal('danger', `No se pudo borrar la categoria: ${error.message}`);
+        return;
+      }
+
+      await refreshAll();
+      showGlobal('ok', 'Categoria eliminada.');
+    }
+
+    function updateOrderStatus(orderId, status) {
+      const orders = readLocalArray(ORDERS_KEY);
+      const next = orders.map((order) => (order.id === orderId ? { ...order, status } : order));
+      writeLocalArray(ORDERS_KEY, next);
+      renderDashboard();
+      renderOrdersTable();
+      renderUsersTable();
+    }
+
+    function updateReturnStatus(orderId, status) {
+      const returns = readLocalArray(RETURNS_KEY);
+      const index = returns.findIndex((entry) => entry.order_id === orderId);
+      if (index === -1) {
+        returns.unshift({ order_id: orderId, status, updated_at: new Date().toISOString() });
+      } else {
+        returns[index] = { ...returns[index], status, updated_at: new Date().toISOString() };
+      }
+      writeLocalArray(RETURNS_KEY, returns);
+      renderDashboard();
+      renderOrdersTable();
+    }
+
+    function requestReturn(orderId) {
+      const returns = readLocalArray(RETURNS_KEY);
+      if (returns.some((entry) => entry.order_id === orderId)) {
+        showGlobal('danger', 'Ese pedido ya tiene una devolucion registrada.');
+        return;
+      }
+
+      returns.unshift({ order_id: orderId, status: 'requested', updated_at: new Date().toISOString() });
+      writeLocalArray(RETURNS_KEY, returns);
+      renderDashboard();
+      renderOrdersTable();
+      showGlobal('ok', 'Solicitud de devolucion registrada.');
+    }
+
+    function createInvoiceFromOrder(orderId) {
+      const orders = readLocalArray(ORDERS_KEY);
+      const order = orders.find((entry) => entry.id === orderId);
+      if (!order) {
+        showGlobal('danger', 'No se encontro el pedido para facturar.');
+        return;
+      }
+
+      const invoice = ensureInvoice(order);
+      renderInvoicesTable();
+      showGlobal('ok', `Factura ${invoice.id} generada para ${order.id}.`);
+    }
+
+    function downloadInvoice(invoiceId) {
+      const invoices = readLocalArray(INVOICES_KEY);
+      const orders = readLocalArray(ORDERS_KEY);
+      const invoice = invoices.find((entry) => entry.id === invoiceId);
+      if (!invoice) {
+        showGlobal('danger', 'Factura no encontrada.');
+        return;
+      }
+
+      const order = orders.find((entry) => entry.id === invoice.order_id);
+      const lines = [
+        `Factura: ${invoice.id}`,
+        `Pedido: ${invoice.order_id}`,
+        `Fecha: ${formatDate(invoice.created_at)}`,
+        `Cliente: ${invoice.customer}`,
+        `Total: ${formatMoney(invoice.total_cents)}`,
+        '',
+        'Lineas:',
+      ];
+
+      const items = Array.isArray(order?.items) ? order.items : [];
+      for (const item of items) {
+        const qty = Number(item.quantity) || 0;
+        const unit = Number(item.unitPriceCents) || 0;
+        lines.push(`- ${item.name || 'Producto'} x${qty} (${formatMoney(unit * qty)})`);
+      }
+
+      downloadText(`${invoice.id}.txt`, lines.join('\n'));
+    }
+
+    async function refreshAll() {
+      await ensureCatalogLoaded();
+      renderDashboard();
+      renderProductsTable();
+      renderCategoriesTable();
+      renderOrdersTable();
+      renderUsersTable();
+      renderInvoicesTable();
+      populateCategorySelect();
+    }
+
+    async function checkAuthAndInit() {
+      hideAlert(authFeedback);
+      hideAlert(globalFeedback);
+
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        setAuthStatus('Faltan variables PUBLIC_SUPABASE_URL y PUBLIC_SUPABASE_ANON_KEY.');
+        showAlert(authFeedback, 'danger', 'Configura variables publicas de Supabase para usar el panel admin.');
+        return;
+      }
+
+      try {
+        supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+          auth: { persistSession: true, autoRefreshToken: true },
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Error desconocido.';
+        showBootstrapError(`No se pudo inicializar Supabase: ${reason}`);
+        return;
+      }
+
+      setAuthStatus('Comprobando permisos…');
+
+      const { data, error } = await Promise.race([
+        supabase.auth.getSession(),
+        new Promise((resolve) => setTimeout(() => resolve({ data: { session: null }, error: new Error('timeout') }), 6500)),
+      ]);
+
+      if (error) {
+        setAuthStatus('No se pudo validar sesion.');
+        showAlert(authFeedback, 'danger', 'No se pudo comprobar la sesion. Revisa la conexion e intenta de nuevo.');
+        return;
+      }
+
+      currentUser = data.session?.user || null;
+
+      if (!currentUser) {
+        setAuthStatus('No hay sesion iniciada.');
+        showAlert(authFeedback, 'danger', 'Debes iniciar sesion para abrir el panel admin.');
+        return;
+      }
+
+      if (!isAdminEmail(currentUser.email || '')) {
+        setAuthStatus(`Sesion iniciada como ${currentUser.email || 'usuario'}, pero sin permisos de admin.`);
+        showAlert(authFeedback, 'danger', 'Tu cuenta no esta autorizada para este panel. Configura PUBLIC_ADMIN_EMAILS.');
+        return;
+      }
+
+      try {
+        await refreshAll();
+      } catch (catalogError) {
+        setAuthStatus('Sesion valida, pero no se pudieron cargar datos.');
+        showAlert(authFeedback, 'danger', `Error al cargar catalogo: ${catalogError.message || 'desconocido'}`);
+        return;
+      }
+
+      setAuthStatus(`Sesion valida: ${currentUser.email || 'admin'}`);
+      if (authGate) authGate.style.display = 'none';
+      if (adminShell) adminShell.style.display = 'grid';
+      setTab('dashboard');
+    }
+
+    tabs.forEach((tabLink) => {
+      tabLink.addEventListener('click', (event) => {
+        event.preventDefault();
+        const nextTab = tabLink.getAttribute('data-tab');
+        if (!nextTab) return;
+        setTab(nextTab);
+      });
+    });
+
+    retryBtn?.addEventListener('click', checkAuthAndInit);
+
+    logoutBtn?.addEventListener('click', async () => {
+      if (!supabase) return;
+      await supabase.auth.signOut();
+      window.location.href = '/perfil';
+    });
+
+    createProductBtn?.addEventListener('click', () => openProductModal());
+    productCancelBtn?.addEventListener('click', () => productModal.close());
+    productForm?.addEventListener('submit', saveProduct);
+    productForm?.elements?.namedItem('name')?.addEventListener('input', () => {
+      const slugInput = productForm.elements.namedItem('slug');
+      if (!slugInput.value.trim()) {
+        slugInput.value = toSlug(productForm.elements.namedItem('name').value);
+      }
+    });
+
+    createCategoryBtn?.addEventListener('click', () => openCategoryModal());
+    categoryCancelBtn?.addEventListener('click', () => categoryModal.close());
+    categoryForm?.addEventListener('submit', saveCategory);
+    categoryForm?.elements?.namedItem('name')?.addEventListener('input', () => {
+      const slugInput = categoryForm.elements.namedItem('slug');
+      if (!slugInput.value.trim()) {
+        slugInput.value = toSlug(categoryForm.elements.namedItem('name').value);
+      }
+    });
+
+    refreshInvoicesBtn?.addEventListener('click', renderInvoicesTable);
+
+    productsTableBody?.addEventListener('click', async (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const action = button.getAttribute('data-action');
+      const id = button.getAttribute('data-id');
+      if (!id) return;
+
+      if (action === 'edit-product') {
+        openProductModal(id);
+      }
+
+      if (action === 'delete-product') {
+        const shouldDelete = window.confirm('¿Seguro que quieres borrar este producto?');
+        if (!shouldDelete) return;
+        await deleteProduct(id);
+      }
+    });
+
+    categoriesTableBody?.addEventListener('click', async (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const action = button.getAttribute('data-action');
+      const id = button.getAttribute('data-id');
+      if (!id) return;
+
+      if (action === 'edit-category') {
+        openCategoryModal(id);
+      }
+
+      if (action === 'delete-category') {
+        const shouldDelete = window.confirm('¿Seguro que quieres borrar esta categoria?');
+        if (!shouldDelete) return;
+        await deleteCategory(id);
+      }
+    });
+
+    ordersTableBody?.addEventListener('change', (event) => {
+      const target = event.target;
+      const action = target.getAttribute('data-action');
+      const id = target.getAttribute('data-id');
+      if (!action || !id) return;
+
+      if (action === 'order-status') {
+        updateOrderStatus(id, target.value);
+      }
+
+      if (action === 'return-status') {
+        updateReturnStatus(id, target.value);
+      }
+    });
+
+    ordersTableBody?.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const action = button.getAttribute('data-action');
+      const id = button.getAttribute('data-id');
+      if (!id) return;
+
+      if (action === 'invoice-order') {
+        createInvoiceFromOrder(id);
+      }
+
+      if (action === 'request-return') {
+        requestReturn(id);
+      }
+    });
+
+    invoicesTableBody?.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const action = button.getAttribute('data-action');
+      const id = button.getAttribute('data-id');
+      if (!id) return;
+
+      if (action === 'download-invoice') {
+        downloadInvoice(id);
+      }
+    });
+
+    setAuthStatus('Inicializando panel admin…');
+    checkAuthAndInit().catch((error) => {
+      const reason = error instanceof Error ? error.message : 'Error inesperado.';
+      showBootstrapError(`No se pudo iniciar el panel: ${reason}`);
+    });
+  </script>
+</Layout>
