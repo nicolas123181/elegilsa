@@ -63,7 +63,6 @@ try {
 					<a href="/collections/all?category=liquidacion">LIQUIDACION</a>
 				</nav>
 				<nav class="nav-links nav-actions">
-					<a class="btn secondary" href="/admin">Admin</a>
 					<a class="icon-link" href="/collections/all#catalog-search" aria-label="Buscar">
 						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
 							<circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"></circle>
@@ -111,6 +110,9 @@ try {
 			const revealTargets = document.querySelectorAll('.panel, .card, .cart-item, .hero-card');
 			revealTargets.forEach((el) => el.classList.add('reveal'));
 
+			const WISHLIST_KEY = 'elegilsa_wishlist_v2';
+			const LEGACY_WISHLIST_KEY = 'elegilsa_wishlist_v1';
+
 			const observer = new IntersectionObserver(
 				(entries) => {
 					entries.forEach((entry) => {
@@ -133,39 +135,103 @@ try {
 				body.style.setProperty('--mouse-y', `${y}%`);
 			});
 
+			function normalizeWishlistItem(item) {
+				if (!item || typeof item !== 'object') return null;
+				const slug = typeof item.slug === 'string' ? item.slug.trim() : '';
+				const name = typeof item.name === 'string' ? item.name.trim() : '';
+				if (!slug || !name) return null;
+
+				return {
+					id: typeof item.id === 'string' ? item.id : null,
+					slug,
+					name,
+					price_cents: Number.isFinite(Number(item.price_cents)) ? Math.max(0, Math.round(Number(item.price_cents))) : 0,
+					image: typeof item.image === 'string' && item.image.trim() ? item.image.trim() : '/catalogo/placeholder.svg',
+				};
+			}
+
+			function readWishlist() {
+				try {
+					const raw = localStorage.getItem(WISHLIST_KEY);
+					const parsed = raw ? JSON.parse(raw) : [];
+					if (Array.isArray(parsed) && parsed.length > 0) {
+						return parsed.map(normalizeWishlistItem).filter((item) => item !== null);
+					}
+				} catch {}
+
+				try {
+					const rawLegacy = localStorage.getItem(LEGACY_WISHLIST_KEY);
+					const parsedLegacy = rawLegacy ? JSON.parse(rawLegacy) : [];
+					const migrated = Array.isArray(parsedLegacy)
+						? parsedLegacy.map(normalizeWishlistItem).filter((item) => item !== null)
+						: [];
+
+					if (migrated.length > 0) {
+						localStorage.setItem(WISHLIST_KEY, JSON.stringify(migrated));
+					}
+					return migrated;
+				} catch {
+					return [];
+				}
+			}
+
+			function writeWishlist(items) {
+				localStorage.setItem(WISHLIST_KEY, JSON.stringify(items));
+			}
+
+			function paintWishlistIcons(items) {
+				const slugs = new Set(items.map((item) => item.slug));
+				document.querySelectorAll('.wishlist-icon[data-slug]').forEach((icon) => {
+					const slug = icon.getAttribute('data-slug') || '';
+					if (slugs.has(slug)) {
+						icon.style.fill = '#e74c3c';
+						icon.style.stroke = '#e74c3c';
+					} else {
+						icon.style.fill = 'none';
+						icon.style.stroke = 'currentColor';
+					}
+				});
+			}
+
 			window.toggleWishlist = function(event, product) {
 				const btn = event.currentTarget;
 				const icon = btn.querySelector('svg');
-				let wishlist = [];
-				try {
-					const raw = localStorage.getItem('elegilsa_wishlist_v1');
-					wishlist = raw ? JSON.parse(raw) : [];
-				} catch (e) {}
+				const normalized = normalizeWishlistItem(product);
+				if (!normalized) return;
 
-				const index = wishlist.findIndex(item => item.slug === product.slug);
+				let wishlist = readWishlist();
+
+				const index = wishlist.findIndex(item => item.slug === normalized.slug);
 				if (index > -1) {
 					wishlist.splice(index, 1);
-					icon.style.fill = 'none';
-					icon.style.stroke = 'currentColor';
 				} else {
-					wishlist.push(product);
-					icon.style.fill = '#e74c3c';
-					icon.style.stroke = '#e74c3c';
+					wishlist.push(normalized);
 				}
-				localStorage.setItem('elegilsa_wishlist_v1', JSON.stringify(wishlist));
+
+				writeWishlist(wishlist);
+				paintWishlistIcons(wishlist);
+
+				if (icon) {
+					const exists = wishlist.some((item) => item.slug === normalized.slug);
+					icon.style.fill = exists ? '#e74c3c' : 'none';
+					icon.style.stroke = exists ? '#e74c3c' : 'currentColor';
+				}
+			};
+
+			window.toggleWishlistFromButton = function(event) {
+				const btn = event.currentTarget;
+				const payload = btn?.getAttribute('data-wishlist-product');
+				if (!payload) return;
+
+				try {
+					const product = JSON.parse(decodeURIComponent(payload));
+					window.toggleWishlist(event, product);
+				} catch {}
 			};
 
 			document.addEventListener('DOMContentLoaded', () => {
-				try {
-					const wishlist = JSON.parse(localStorage.getItem('elegilsa_wishlist_v1') || '[]');
-					wishlist.forEach(item => {
-						const icons = document.querySelectorAll(`.wishlist-icon[data-slug="${item.slug}"]`);
-						icons.forEach(icon => {
-							icon.style.fill = '#e74c3c';
-							icon.style.stroke = '#e74c3c';
-						});
-					});
-				} catch(e) {}
+				const wishlist = readWishlist();
+				paintWishlistIcons(wishlist);
 			});
 		</script>
 	</body>

@@ -152,6 +152,15 @@ import Layout from '../layouts/Layout.astro';
       return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((cents || 0) / 100);
     }
 
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
     function showFeedback(type, message) {
       feedbackEl.textContent = message;
       feedbackEl.classList.remove('ok', 'danger');
@@ -179,7 +188,15 @@ import Layout from '../layouts/Layout.astro';
         let quantity = Math.max(0, Number(item.quantity || 0));
         if (stock > 0) quantity = Math.min(quantity, stock);
         if (stock === 0) quantity = 0;
-        return { ...item, quantity, stock };
+        return {
+          ...item,
+          key: String(item.key || `${item.productId || 'item'}::${item.variantId || 'no-variant'}`),
+          name: String(item.name || 'Producto'),
+          variantName: String(item.variantName || ''),
+          unitPriceCents: Math.max(0, Math.round(Number(item.unitPriceCents || 0))),
+          quantity,
+          stock,
+        };
       }).filter((item) => item.quantity > 0);
     }
 
@@ -235,7 +252,7 @@ import Layout from '../layouts/Layout.astro';
 
     function getPaymentMethod() {
       const selected = document.querySelector('input[name="payment_method"]:checked');
-      return selected?.value || 'card';
+      return selected?.value || 'stripe';
     }
 
     function validateStep(step) {
@@ -276,7 +293,11 @@ import Layout from '../layouts/Layout.astro';
       const total = subtotal + shipping;
 
       cartPreviewEl.innerHTML = cart
-        .map((item) => `<div class="summary-line"><span>${item.name} ${item.variantName ? `(${item.variantName})` : ''} x${item.quantity}</span><strong>${formatEuros((item.unitPriceCents || 0) * item.quantity)}</strong></div>`)
+        .map((item) => {
+          const safeName = escapeHtml(item.name);
+          const safeVariant = item.variantName ? ` (${escapeHtml(item.variantName)})` : '';
+          return `<div class="summary-line"><span>${safeName}${safeVariant} x${item.quantity}</span><strong>${formatEuros((item.unitPriceCents || 0) * item.quantity)}</strong></div>`;
+        })
         .join('');
 
       sumSubtotalEl.textContent = formatEuros(subtotal);

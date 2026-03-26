@@ -9,6 +9,7 @@ import Layout from '../layouts/Layout.astro';
 
     <div class="row" style="margin-top: 0.6rem;">
       <a id="back-link" class="btn secondary" href="/collections/all">Volver</a>
+      <a id="admin-link" class="btn secondary" href="/admin" style="display: none;">Panel admin</a>
       <button id="logout-btn" type="button" class="btn secondary" style="display: none;">Cerrar sesion</button>
     </div>
 
@@ -143,6 +144,10 @@ import Layout from '../layouts/Layout.astro';
 
     const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL || '';
     const supabaseAnonKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY || '';
+    const adminEmails = String(import.meta.env.PUBLIC_ADMIN_EMAILS || '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
 
     const statusEl = document.getElementById('profile-status');
     const authPanel = document.getElementById('auth-panel');
@@ -175,6 +180,7 @@ import Layout from '../layouts/Layout.astro';
     const PROFILE_PREFIX = 'elegilsa_profile_';
     const logoutBtn = document.getElementById('logout-btn');
     const backLink = document.getElementById('back-link');
+    const adminLink = document.getElementById('admin-link');
 
     const params = new URLSearchParams(window.location.search);
     const next = params.get('next') || '/collections/all';
@@ -276,6 +282,13 @@ import Layout from '../layouts/Layout.astro';
 
     function isValidEmail(value) {
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    }
+
+    function isAdminEmail(email) {
+      const normalized = String(email || '').trim().toLowerCase();
+      if (!normalized) return false;
+      if (adminEmails.length === 0) return true;
+      return adminEmails.includes(normalized);
     }
 
     function profileKey(userId) {
@@ -399,6 +412,7 @@ import Layout from '../layouts/Layout.astro';
         if (authPanel) authPanel.style.display = 'block';
         if (profilePanel) profilePanel.style.display = 'none';
         if (logoutBtn) logoutBtn.style.display = 'none';
+        if (adminLink) adminLink.style.display = 'none';
         localStorage.removeItem('elegilsa_user_logged');
         return;
       }
@@ -408,6 +422,9 @@ import Layout from '../layouts/Layout.astro';
       if (authPanel) authPanel.style.display = 'none';
       if (profilePanel) profilePanel.style.display = 'block';
       if (logoutBtn) logoutBtn.style.display = 'inline-flex';
+      if (adminLink) {
+        adminLink.style.display = isAdminEmail(user.email || '') ? 'inline-flex' : 'none';
+      }
       if (loggedEmail) {
         loggedEmail.textContent = `Cuenta: ${user.email || 'Sin correo'}`;
       }

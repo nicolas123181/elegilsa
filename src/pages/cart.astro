@@ -50,6 +50,15 @@ import Layout from '../layouts/Layout.astro';
       return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((cents || 0) / 100);
     }
 
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
     function showFeedback(type, message) {
       feedbackEl.textContent = message;
       feedbackEl.classList.remove('ok', 'danger');
@@ -77,7 +86,16 @@ import Layout from '../layouts/Layout.astro';
         let quantity = Math.max(0, Number(item.quantity || 0));
         if (stock > 0) quantity = Math.min(quantity, stock);
         if (stock === 0) quantity = 0;
-        return { ...item, quantity, stock };
+        return {
+          ...item,
+          key: String(item.key || `${item.productId || 'item'}::${item.variantId || 'no-variant'}`),
+          name: String(item.name || 'Producto'),
+          variantName: String(item.variantName || 'Variante unica'),
+          imageUrl: String(item.imageUrl || '/catalogo/placeholder.svg'),
+          unitPriceCents: Math.max(0, Math.round(Number(item.unitPriceCents || 0))),
+          quantity,
+          stock,
+        };
       }).filter((item) => item.quantity > 0);
     }
 
@@ -97,23 +115,27 @@ import Layout from '../layouts/Layout.astro';
       listEl.innerHTML = '';
 
       for (const item of cart) {
+        const safeName = escapeHtml(item.name || 'Producto');
+        const safeVariant = escapeHtml(item.variantName || 'Variante unica');
+        const safeImage = escapeHtml(item.imageUrl || '/catalogo/placeholder.svg');
+        const safeKey = escapeHtml(item.key);
         const wrapper = document.createElement('article');
         wrapper.className = 'cart-item';
         wrapper.innerHTML = `
-          <img class="cart-image" src="${item.imageUrl || '/catalogo/placeholder.svg'}" alt="${item.name || 'Producto'}" />
+          <img class="cart-image" src="${safeImage}" alt="${safeName}" />
           <div>
-            <p style="margin: 0; font-weight: 700;">${item.name || 'Producto'}</p>
-            <p style="margin: 0.3rem 0; color: var(--muted);">${item.variantName || 'Variante unica'}</p>
+            <p style="margin: 0; font-weight: 700;">${safeName}</p>
+            <p style="margin: 0.3rem 0; color: var(--muted);">${safeVariant}</p>
             <p style="margin: 0;">Stock disponible: <strong>${item.stock}</strong></p>
             <div class="qty-control" style="margin-top: 0.5rem;">
-              <button class="qty-btn" type="button" data-action="dec" data-key="${item.key}">-</button>
-              <input class="qty" type="number" min="1" max="${Math.max(item.stock, 1)}" value="${item.quantity}" data-action="input" data-key="${item.key}" />
-              <button class="qty-btn" type="button" data-action="inc" data-key="${item.key}">+</button>
+              <button class="qty-btn" type="button" data-action="dec" data-key="${safeKey}">-</button>
+              <input class="qty" type="number" min="1" max="${Math.max(item.stock, 1)}" value="${item.quantity}" data-action="input" data-key="${safeKey}" />
+              <button class="qty-btn" type="button" data-action="inc" data-key="${safeKey}">+</button>
             </div>
           </div>
           <div style="display: grid; gap: 0.5rem; justify-items: end;">
             <strong>${formatEuros((item.unitPriceCents || 0) * item.quantity)}</strong>
-            <button class="btn secondary" type="button" data-action="remove" data-key="${item.key}">Quitar</button>
+            <button class="btn secondary" type="button" data-action="remove" data-key="${safeKey}">Quitar</button>
           </div>
         `;
         listEl.appendChild(wrapper);

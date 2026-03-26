@@ -1,17 +1,17 @@
 :root {
-  --bg: #ffffff;
-  --surface: #ffffff;
-  --surface-soft: #f8f9fa;
-  --text: #111111;
-  --muted: #6c757d;
-  --brand: #000000;
-  --brand-2: #333333;
-  --border: #e2e8f0;
+  --bg: #f8f2eb;
+  --surface: #fffdf9;
+  --surface-soft: #f4ece3;
+  --text: #1f1712;
+  --muted: #75665b;
+  --brand: #7e5f4b;
+  --brand-2: #ba8f70;
+  --border: #e8dcd0;
   --ok: #20402b;
   --danger: #9c2b2e;
   --warn: #8a6d3b;
-  --shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
-  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.02);
+  --shadow: 0 14px 34px rgba(66, 43, 26, 0.11);
+  --shadow-soft: 0 8px 20px rgba(66, 43, 26, 0.08);
   --mouse-x: 50%;
   --mouse-y: 30%;
 }
@@ -26,7 +26,9 @@ body {
   padding: 0;
   font-family: "DM Sans", "Segoe UI", sans-serif;
   color: var(--text);
-  background: var(--bg);
+  background:
+    radial-gradient(circle at var(--mouse-x) var(--mouse-y), rgba(186, 143, 112, 0.18), transparent 36%),
+    linear-gradient(180deg, #fbf6f0 0%, var(--bg) 44%, #f3e6d9 100%);
   min-height: 100%;
 }
 
@@ -59,8 +61,8 @@ img {
   position: sticky;
   top: 0;
   z-index: 20;
-  backdrop-filter: blur(8px);
-  background: rgba(251, 247, 242, 0.94);
+  backdrop-filter: blur(10px);
+  background: rgba(254, 247, 238, 0.88);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--shadow-soft);
 }
@@ -71,6 +73,7 @@ img {
   padding: 0.5rem;
   background: linear-gradient(90deg, var(--brand), var(--brand-2));
   color: #fff;
+  letter-spacing: 0.08em;
 }
 
 .nav {
@@ -83,8 +86,8 @@ img {
 
 .brand {
   font-family: "Playfair Display", serif;
-  font-size: 1.45rem;
-  letter-spacing: 0.08em;
+  font-size: 1.5rem;
+  letter-spacing: 0.12em;
 }
 
 .nav-links {
@@ -206,14 +209,15 @@ img {
   height: 40px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: #fff;
+  background: linear-gradient(145deg, #fff, #fff7f0);
   color: var(--text);
   box-shadow: var(--shadow-soft);
-  transition: transform 0.18s ease;
+  transition: transform 0.18s ease, border-color 0.18s ease;
 }
 
 .icon-link:hover {
   transform: translateY(-1px) scale(1.04);
+  border-color: color-mix(in srgb, var(--brand) 44%, var(--border));
 }
 
 .icon-link svg,
@@ -223,11 +227,20 @@ img {
 }
 
 .hero {
-  padding: 3rem 0 2rem;
+  padding: 3.4rem 0 2.4rem;
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
   gap: 2rem;
   align-items: center;
+}
+
+.hero-kicker {
+  margin: 0 0 0.45rem;
+  font-size: 0.86rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--brand) 84%, #fff);
+  font-weight: 700;
 }
 
 .hero h1 {
@@ -243,8 +256,32 @@ img {
   max-width: 48ch;
 }
 
+.hero-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.hero-trust {
+  margin-top: 0.9rem;
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.hero-trust span {
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--border));
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--brand) 78%, #fff);
+  background: color-mix(in srgb, var(--surface) 92%, #fff);
+}
+
 .hero-card {
-  border-radius: 4px;
+  border-radius: 18px;
   background: var(--surface-soft);
   min-height: 320px;
   box-shadow: var(--shadow);
@@ -280,7 +317,7 @@ img {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 16px;
   overflow: clip;
   box-shadow: var(--shadow);
   transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
@@ -288,7 +325,7 @@ img {
 
 .card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 28px rgba(73, 43, 24, 0.12);
+  box-shadow: 0 16px 30px rgba(73, 43, 24, 0.17);
   border-color: color-mix(in srgb, var(--brand) 35%, var(--border));
 }
 
@@ -358,10 +395,10 @@ img {
 button,
 input[type='submit'] {
   border: 0;
-  border-radius: 10px;
-  background: var(--brand);
+  border-radius: 12px;
+  background: linear-gradient(120deg, var(--brand), var(--brand-2));
   color: #fff;
-  padding: 0.65rem 0.95rem;
+  padding: 0.68rem 1rem;
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.2s ease;
@@ -375,7 +412,7 @@ input[type='submit']:hover {
 }
 
 .btn.secondary {
-  background: #fff;
+  background: linear-gradient(160deg, #fff, #fff6ee);
   color: var(--text);
   border: 1px solid var(--border);
 }
@@ -384,6 +421,24 @@ input[type='submit']:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.card-wishlist-btn {
+  top: 12px;
+  right: 12px;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border));
+  background: rgba(255, 252, 247, 0.96);
+  box-shadow: 0 8px 20px rgba(28, 19, 13, 0.2);
+  z-index: 2;
+  color: color-mix(in srgb, var(--brand) 85%, #000);
+}
+
+.wishlist-btn.card-wishlist-btn svg {
+  width: 24px;
+  height: 24px;
 }
 
 .wishlist-btn svg {

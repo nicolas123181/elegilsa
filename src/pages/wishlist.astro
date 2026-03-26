@@ -18,7 +18,8 @@ import Layout from '../layouts/Layout.astro';
   </section>
 
   <script is:inline>
-    const WISHLIST_KEY = 'elegilsa_wishlist_v1';
+    const WISHLIST_KEY = 'elegilsa_wishlist_v2';
+    const LEGACY_WISHLIST_KEY = 'elegilsa_wishlist_v1';
     const emptyEl = document.getElementById('wishlist-empty');
     const contentEl = document.getElementById('wishlist-content');
     const listEl = document.getElementById('wishlist-list');
@@ -27,19 +28,61 @@ import Layout from '../layouts/Layout.astro';
       return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((cents || 0) / 100);
     }
 
+    function normalizeWishlistItem(item) {
+      if (!item || typeof item !== 'object') return null;
+      const slug = typeof item.slug === 'string' ? item.slug.trim() : '';
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!slug || !name) return null;
+
+      return {
+        id: typeof item.id === 'string' ? item.id : null,
+        slug,
+        name,
+        price_cents: Number.isFinite(Number(item.price_cents)) ? Math.max(0, Math.round(Number(item.price_cents))) : 0,
+        image: typeof item.image === 'string' && item.image.trim() ? item.image.trim() : '/catalogo/placeholder.svg',
+      };
+    }
+
     function readWishlist() {
       try {
         const raw = localStorage.getItem(WISHLIST_KEY);
-        return raw ? JSON.parse(raw) : [];
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(normalizeWishlistItem).filter((item) => item !== null);
+        }
+      } catch {}
+
+      try {
+        const rawLegacy = localStorage.getItem(LEGACY_WISHLIST_KEY);
+        const parsedLegacy = rawLegacy ? JSON.parse(rawLegacy) : [];
+        const migrated = Array.isArray(parsedLegacy)
+          ? parsedLegacy.map(normalizeWishlistItem).filter((item) => item !== null)
+          : [];
+        if (migrated.length > 0) {
+          localStorage.setItem(WISHLIST_KEY, JSON.stringify(migrated));
+        }
+        return migrated;
       } catch {
         return [];
       }
     }
 
+    function writeWishlist(items) {
+      localStorage.setItem(WISHLIST_KEY, JSON.stringify(items));
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
     function removeWishlist(slug) {
-      let wishlist = readWishlist();
-      wishlist = wishlist.filter(item => item.slug !== slug);
-      localStorage.setItem(WISHLIST_KEY, JSON.stringify(wishlist));
+      const next = readWishlist().filter((item) => item.slug !== slug);
+      writeWishlist(next);
       render();
     }
 
@@ -57,29 +100,40 @@ import Layout from '../layouts/Layout.astro';
       listEl.innerHTML = '';
 
       wishlist.forEach(item => {
+        const safeSlug = encodeURIComponent(item.slug);
+        const safeName = escapeHtml(item.name);
+        const safeImage = escapeHtml(item.image || '/catalogo/placeholder.svg');
         const article = document.createElement('article');
         article.className = 'card';
         article.innerHTML = `
-          <a href="/products/${item.slug}" aria-label="Ver ${item.name}">
+          <a href="/products/${safeSlug}" aria-label="Ver ${safeName}">
             <div class="card-media">
-              <img src="${item.image || '/catalogo/placeholder.svg'}" alt="${item.name}" loading="lazy" />
+              <img src="${safeImage}" alt="${safeName}" loading="lazy" />
             </div>
             <div class="card-body">
-              <h3 class="card-name">${item.name}</h3>
+              <h3 class="card-name">${safeName}</h3>
               <p class="price">
                 <span>${formatEuros(item.price_cents)}</span>
               </p>
             </div>
           </a>
           <div style="padding: 0 1rem 1rem;">
-            <button class="btn secondary" style="width: 100%;" onclick="event.preventDefault(); window.removeWishlist('${item.slug}')">Eliminar de Wishlist</button>
+            <button class="btn secondary" style="width: 100%;" data-action="remove" data-slug="${safeSlug}">Eliminar de Wishlist</button>
           </div>
         `;
         listEl.appendChild(article);
       });
     }
 
-    window.removeWishlist = removeWishlist;
+    listEl?.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action="remove"]');
+      if (!button) return;
+      event.preventDefault();
+      const slug = button.getAttribute('data-slug');
+      if (!slug) return;
+      removeWishlist(decodeURIComponent(slug));
+    });
+
     render();
   </script>
 </Layout>

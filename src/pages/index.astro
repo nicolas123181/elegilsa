@@ -12,12 +12,21 @@ const products = await getFeaturedProducts(8);
 >
 	<section class="hero">
 		<div>
+			<p class="hero-kicker">Nueva temporada 2026</p>
 			<h1>Descubre las ultimas novedades</h1>
 			<p>
 				Colecciones con estilo diario, prendas especiales y complementos para elevar cada look. Compra online
 				con total facilidad.
 			</p>
-			<a class="btn" href="/collections/all">Compra aqui</a>
+			<div class="hero-actions">
+				<a class="btn" href="/collections/all">Comprar ahora</a>
+				<a class="btn secondary" href="/wishlist">Ver favoritos</a>
+			</div>
+			<div class="hero-trust">
+				<span>Envio 24/48h</span>
+				<span>Pago seguro</span>
+				<span>Cambios faciles</span>
+			</div>
 		</div>
 		<div class="hero-card">
 			<img src="/catalogo/vestido-alma/01.svg" alt="Portada de novedades ELEGILSA" loading="eager" />

@@ -18,7 +18,8 @@ if (!product) {
 const images = product?.product_images ?? [];
 const activeVariants: ProductVariant[] = (product?.product_variants ?? []).filter((variant) => variant.is_active);
 const firstAvailableVariant = activeVariants.find((variant) => variant.stock > 0) ?? activeVariants[0] ?? null;
-const initialStock = firstAvailableVariant ? Math.max(0, firstAvailableVariant.stock) : 0;
+const usesVariantStock = activeVariants.length > 0;
+const initialStock = usesVariantStock ? (firstAvailableVariant ? Math.max(0, firstAvailableVariant.stock) : 0) : 99;
 
 function formatEuros(cents: number): string {
   return new Intl.NumberFormat('es-ES', {
@@ -147,7 +148,7 @@ function formatEuros(cents: number): string {
         const thumbs = Array.from(document.querySelectorAll('#product-thumbs .thumb'));
 
         const CART_KEY = 'elegilsa_cart_v1';
-        const WISHLIST_PREFIX = 'elegilsa_wishlist_';
+        const WISHLIST_KEY = 'elegilsa_wishlist_v2';
 
         function showFeedback(type, message) {
           if (!feedbackEl) return;
@@ -158,7 +159,7 @@ function formatEuros(cents: number): string {
         }
 
         function getCurrentStock() {
-          if (!variantSelect) return 0;
+          if (!variantSelect) return 99;
           const option = variantSelect.selectedOptions[0];
           const stock = Number(option?.dataset.stock ?? '0');
           return Number.isFinite(stock) ? Math.max(0, stock) : 0;
@@ -176,7 +177,7 @@ function formatEuros(cents: number): string {
 
           if (addToCartBtn) addToCartBtn.disabled = stock === 0;
           if (stock === 0) {
-            showFeedback('danger', 'Producto agotado para la variante seleccionada.');
+            showFeedback('danger', variantSelect ? 'Producto agotado para la variante seleccionada.' : 'Producto agotado.');
           }
         }
 
@@ -194,55 +195,39 @@ function formatEuros(cents: number): string {
           localStorage.setItem(CART_KEY, JSON.stringify(items));
         }
 
-        function getSupabaseUserIdFromStorage() {
-          try {
-            const tokenKey = Object.keys(localStorage).find((key) => key.startsWith('sb-') && key.endsWith('-auth-token'));
-            if (!tokenKey) return null;
+        function normalizeWishlistItem(item) {
+          if (!item || typeof item !== 'object') return null;
+          const slug = typeof item.slug === 'string' ? item.slug.trim() : '';
+          const name = typeof item.name === 'string' ? item.name.trim() : '';
+          if (!slug || !name) return null;
 
-            const raw = localStorage.getItem(tokenKey);
-            if (!raw) return null;
-            const parsed = JSON.parse(raw);
-
-            if (parsed?.user?.id) return parsed.user.id;
-            if (parsed?.currentSession?.user?.id) return parsed.currentSession.user.id;
-            if (Array.isArray(parsed) && parsed[0]?.user?.id) return parsed[0].user.id;
-            return null;
-          } catch {
-            return null;
-          }
-        }
-
-        function isUserLoggedIn() {
-          return Boolean(getSupabaseUserIdFromStorage());
-        }
-
-        function getWishlistKey() {
-          const userId = getSupabaseUserIdFromStorage();
-          return userId ? `${WISHLIST_PREFIX}${userId}` : null;
+          return {
+            id: typeof item.id === 'string' ? item.id : null,
+            slug,
+            name,
+            price_cents: Number.isFinite(Number(item.price_cents)) ? Math.max(0, Math.round(Number(item.price_cents))) : 0,
+            image: typeof item.image === 'string' && item.image.trim() ? item.image.trim() : '/catalogo/placeholder.svg',
+          };
         }
 
         function readWishlist() {
-          const key = getWishlistKey();
-          if (!key) return [];
           try {
-            const raw = localStorage.getItem(key);
+            const raw = localStorage.getItem(WISHLIST_KEY);
             const parsed = raw ? JSON.parse(raw) : [];
-            return Array.isArray(parsed) ? parsed : [];
+            return Array.isArray(parsed) ? parsed.map(normalizeWishlistItem).filter((item) => item !== null) : [];
           } catch {
             return [];
           }
         }
 
-        function writeWishlist(ids) {
-          const key = getWishlistKey();
-          if (!key) return;
-          localStorage.setItem(key, JSON.stringify(ids));
+        function writeWishlist(items) {
+          localStorage.setItem(WISHLIST_KEY, JSON.stringify(items));
         }
 
         function syncWishlistButton() {
           if (!wishlistBtn) return;
-          const ids = readWishlist();
-          const active = ids.includes(productId);
+          const items = readWishlist();
+          const active = items.some((item) => item.slug === productSlug || item.id === productId);
           wishlistBtn.classList.toggle('is-active', active);
           wishlistBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
         }
@@ -317,17 +302,20 @@ function formatEuros(cents: number): string {
         });
 
         wishlistBtn?.addEventListener('click', () => {
-          if (!isUserLoggedIn()) {
-            showFeedback('danger', 'Debes iniciar sesion para usar wishlist.');
-            setTimeout(() => {
-              window.location.href = `/perfil?next=${encodeURIComponent(window.location.pathname)}`;
-            }, 350);
-            return;
-          }
-
-          const ids = readWishlist();
-          const exists = ids.includes(productId);
-          const next = exists ? ids.filter((id) => id !== productId) : [...ids, productId];
+          const items = readWishlist();
+          const exists = items.some((item) => item.slug === productSlug || item.id === productId);
+          const next = exists
+            ? items.filter((item) => item.slug !== productSlug && item.id !== productId)
+            : [
+                ...items,
+                {
+                  id: productId,
+                  slug: productSlug,
+                  name: productName,
+                  price_cents: productPriceCents,
+                  image: productImage,
+                },
+              ];
           writeWishlist(next);
           syncWishlistButton();
           showFeedback('ok', exists ? 'Producto eliminado de wishlist.' : 'Producto guardado en wishlist.');
