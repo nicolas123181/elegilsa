@@ -1,0 +1,338 @@
+---
+import type { SearchProduct } from '../lib/store';
+
+type Props = {
+  products: SearchProduct[];
+};
+
+const { products } = Astro.props as Props;
+const serializedProducts = JSON.stringify(products).replace(/</g, '\\u003c');
+---
+
+<div id="smart-search-modal" class="search-modal" hidden>
+  <div class="search-modal-backdrop" data-search-close="true" aria-hidden="true"></div>
+  <section class="search-modal-panel" role="dialog" aria-modal="true" aria-labelledby="smart-search-title">
+    <header class="search-modal-header">
+      <h2 id="smart-search-title">Buscar en ELEGILSA</h2>
+      <button type="button" class="search-close" data-search-close="true" aria-label="Cerrar buscador">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 6l12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          <path d="M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+        </svg>
+      </button>
+    </header>
+
+    <div class="search-modal-input-wrap">
+      <input id="smart-search-input" type="search" placeholder="Vestido azul, cuñas, blusa..." autocomplete="off" />
+      <button type="button" class="btn" id="smart-search-submit">Buscar</button>
+    </div>
+
+    <p class="search-modal-hint">Tip: pulsa <strong>/</strong> para abrir este buscador desde cualquier página.</p>
+
+    <ul id="smart-search-results" class="search-results" role="listbox" aria-label="Resultados de busqueda"></ul>
+
+    <footer class="search-modal-footer">
+      <a id="smart-search-view-all" class="btn secondary" href="/collections/all">Ver resultados en catálogo</a>
+    </footer>
+  </section>
+</div>
+
+<script id="smart-search-products-json" type="application/json" set:html={serializedProducts}></script>
+
+<script>
+  const modal = document.getElementById('smart-search-modal');
+  const input = document.getElementById('smart-search-input');
+  const resultsEl = document.getElementById('smart-search-results');
+  const submitBtn = document.getElementById('smart-search-submit');
+  const viewAllLink = document.getElementById('smart-search-view-all');
+  const productsJson = document.getElementById('smart-search-products-json');
+
+  const smartProducts = (() => {
+    try {
+      const parsed = JSON.parse(productsJson?.textContent || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  const MAX_RESULTS = 8;
+  let activeIndex = -1;
+  let currentResults = [];
+
+  function normalize(value) {
+    return String(value || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function tokenize(value) {
+    return normalize(value)
+      .split(' ')
+      .filter((token) => token.length > 1);
+  }
+
+  function levenshteinDistance(a, b, maxDistance = 2) {
+    if (a === b) return 0;
+    if (Math.abs(a.length - b.length) > maxDistance) return maxDistance + 1;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+
+    const prev = new Array(b.length + 1);
+    const curr = new Array(b.length + 1);
+
+    for (let j = 0; j <= b.length; j += 1) prev[j] = j;
+
+    for (let i = 1; i <= a.length; i += 1) {
+      curr[0] = i;
+      let rowMin = curr[0];
+
+      for (let j = 1; j <= b.length; j += 1) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+        if (curr[j] < rowMin) rowMin = curr[j];
+      }
+
+      if (rowMin > maxDistance) return maxDistance + 1;
+      for (let j = 0; j <= b.length; j += 1) prev[j] = curr[j];
+    }
+
+    return prev[b.length];
+  }
+
+  function scoreProduct(product, query) {
+    const normalizedQuery = normalize(query);
+    if (!normalizedQuery) return 0;
+
+    const name = normalize(product.name || '');
+    const blob = normalize(product.search_blob || `${product.name || ''} ${product.description || ''}`);
+    const queryTokens = tokenize(normalizedQuery);
+    const nameTokens = tokenize(name);
+    const blobTokens = tokenize(blob);
+
+    let score = 0;
+
+    if (name === normalizedQuery) score += 250;
+    if (name.startsWith(normalizedQuery)) score += 130;
+    if (name.includes(normalizedQuery)) score += 95;
+    if (blob.includes(normalizedQuery)) score += 55;
+
+    let matchedTokens = 0;
+    for (const token of queryTokens) {
+      if (nameTokens.some((nameToken) => nameToken.startsWith(token))) {
+        score += 34;
+        matchedTokens += 1;
+        continue;
+      }
+
+      if (blobTokens.includes(token)) {
+        score += 20;
+        matchedTokens += 1;
+        continue;
+      }
+
+      const typoMatch = nameTokens.find((word) => levenshteinDistance(word, token, 1) <= 1);
+      if (typoMatch) {
+        score += 11;
+        matchedTokens += 1;
+      }
+    }
+
+    if (queryTokens.length > 0 && matchedTokens === queryTokens.length) {
+      score += 28;
+    }
+
+    return score;
+  }
+
+  function formatEuros(cents) {
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((Number(cents) || 0) / 100);
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function makeCatalogLink(query) {
+    const params = new URLSearchParams();
+    params.set('q', query);
+    return `/collections/all?${params.toString()}`;
+  }
+
+  function closeSearchModal() {
+    if (!modal) return;
+    modal.hidden = true;
+    document.body.classList.remove('search-open');
+    activeIndex = -1;
+  }
+
+  function openSearchModal(prefill = '') {
+    if (!modal) return;
+    modal.hidden = false;
+    document.body.classList.add('search-open');
+
+    if (input) {
+      if (prefill) input.value = prefill;
+      input.focus();
+      input.select();
+      updateResults(input.value || '');
+    }
+  }
+
+  function navigateToCatalog(query) {
+    const q = String(query || '').trim();
+    window.location.href = q ? makeCatalogLink(q) : '/collections/all';
+  }
+
+  function renderResults(results, query) {
+    if (!resultsEl) return;
+    const trimmed = String(query || '').trim();
+
+    if (!trimmed) {
+      resultsEl.innerHTML = '<li class="search-state">Empieza a escribir para ver sugerencias inteligentes.</li>';
+      return;
+    }
+
+    if (results.length === 0) {
+      resultsEl.innerHTML = '<li class="search-state">No encontramos coincidencias. Prueba con otro termino.</li>';
+      return;
+    }
+
+    resultsEl.innerHTML = results
+      .map((entry, index) => {
+        const product = entry.product;
+        const safeName = escapeHtml(product.name || 'Producto');
+        const safeCategory = escapeHtml(product.category_name || 'Colección');
+        const safeImage = escapeHtml(product.image_url || '/catalogo/placeholder.svg');
+        const safeSlug = encodeURIComponent(product.slug || '');
+        return `
+          <li>
+            <a class="search-result" data-result-index="${index}" href="/products/${safeSlug}">
+              <img src="${safeImage}" alt="${safeName}" loading="lazy" />
+              <div>
+                <p>${safeName}</p>
+                <small>${safeCategory} · ${formatEuros(product.price_cents)}</small>
+              </div>
+            </a>
+          </li>
+        `;
+      })
+      .join('');
+  }
+
+  function refreshActiveResult() {
+    if (!resultsEl) return;
+    resultsEl.querySelectorAll('.search-result').forEach((entry) => {
+      const idx = Number(entry.getAttribute('data-result-index') || '-1');
+      entry.classList.toggle('active', idx === activeIndex);
+    });
+  }
+
+  function updateResults(query) {
+    const trimmed = String(query || '').trim();
+    const scored = trimmed
+      ? smartProducts
+          .map((product) => ({ product, score: scoreProduct(product, trimmed) }))
+          .filter((entry) => entry.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, MAX_RESULTS)
+      : [];
+
+    currentResults = scored;
+    activeIndex = scored.length > 0 ? 0 : -1;
+
+    if (viewAllLink) {
+      viewAllLink.setAttribute('href', trimmed ? makeCatalogLink(trimmed) : '/collections/all');
+    }
+
+    renderResults(scored, trimmed);
+    refreshActiveResult();
+  }
+
+  input?.addEventListener('input', (event) => {
+    updateResults(event.target.value || '');
+  });
+
+  input?.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeSearchModal();
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      if (!currentResults.length) return;
+      event.preventDefault();
+      activeIndex = Math.min(activeIndex + 1, currentResults.length - 1);
+      refreshActiveResult();
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      if (!currentResults.length) return;
+      event.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+      refreshActiveResult();
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (activeIndex >= 0 && currentResults[activeIndex]) {
+        window.location.href = `/products/${encodeURIComponent(currentResults[activeIndex].product.slug)}`;
+        return;
+      }
+      navigateToCatalog(input.value || '');
+    }
+  });
+
+  submitBtn?.addEventListener('click', () => {
+    navigateToCatalog(input?.value || '');
+  });
+
+  resultsEl?.addEventListener('mousemove', (event) => {
+    const target = event.target.closest('.search-result');
+    if (!target) return;
+    const idx = Number(target.getAttribute('data-result-index') || '-1');
+    if (!Number.isFinite(idx) || idx < 0) return;
+    activeIndex = idx;
+    refreshActiveResult();
+  });
+
+  modal?.addEventListener('click', (event) => {
+    if (event.target.closest('[data-search-close="true"]')) {
+      closeSearchModal();
+    }
+  });
+
+  document.addEventListener('click', (event) => {
+    const trigger = event.target.closest('[data-open-smart-search="true"]');
+    if (!trigger) return;
+    event.preventDefault();
+    const querySeed = trigger.getAttribute('data-prefill') || '';
+    openSearchModal(querySeed);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if ((event.key === '/' || (event.key.toLowerCase() === 'k' && (event.ctrlKey || event.metaKey))) && !event.defaultPrevented) {
+      const tag = document.activeElement?.tagName?.toLowerCase();
+      const editable = tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable;
+      if (editable) return;
+      event.preventDefault();
+      openSearchModal();
+      return;
+    }
+
+    if (event.key === 'Escape' && !modal?.hidden) {
+      closeSearchModal();
+    }
+  });
+</script>

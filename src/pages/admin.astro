@@ -1,5 +1,80 @@
 ---
 import Layout from '../layouts/Layout.astro';
+
+const ADMIN_SHOPIFY_FALLBACK_URL = 'https://elegilsa.com/products.json?limit=250';
+
+let serverFallbackProducts = [];
+try {
+  const response = await fetch(ADMIN_SHOPIFY_FALLBACK_URL, {
+    headers: { Accept: 'application/json' },
+  });
+
+  if (response.ok) {
+    const payload = await response.json();
+    const sourceProducts = Array.isArray(payload?.products) ? payload.products : [];
+
+    serverFallbackProducts = sourceProducts
+      .map((entry, index) => {
+        const slug = String(entry?.handle || '').trim();
+        const name = String(entry?.title || '').trim();
+        if (!slug || !name) return null;
+
+        const firstVariant = Array.isArray(entry?.variants) ? entry.variants[0] : null;
+        const cents = Math.round(Number(firstVariant?.price || 0) * 100);
+        const compareCents = firstVariant?.compare_at_price ? Math.round(Number(firstVariant.compare_at_price) * 100) : null;
+        const stock = Number(firstVariant?.inventory_quantity || 0);
+        const images = Array.isArray(entry?.images) ? entry.images : [];
+        const mappedImages = images
+          .map((img, imgIndex) => {
+            const url = String(img?.src || '').trim();
+            if (!url) return null;
+            return {
+              id: imgIndex + 1,
+              url,
+              alt_text: String(img?.alt || '').trim() || name,
+              position: imgIndex + 1,
+            };
+          })
+          .filter(Boolean);
+
+        return {
+          id: `shopify:${slug}:${index}`,
+          category_id: null,
+          slug,
+          name,
+          description: typeof entry?.body_html === 'string' ? entry.body_html.replace(/<[^>]+>/g, '').trim() : null,
+          price_cents: Number.isFinite(cents) && cents > 0 ? cents : 0,
+          compare_at_cents: Number.isFinite(compareCents) ? compareCents : null,
+          featured: false,
+          is_active: true,
+          created_at: String(entry?.published_at || new Date().toISOString()),
+          product_variants: [
+            {
+              id: `shopify-variant:${slug}`,
+              name: 'Talla única',
+              stock: Number.isFinite(stock) ? Math.max(0, stock) : 0,
+              is_active: true,
+              position: 1,
+            },
+          ],
+          product_images: mappedImages.length > 0
+            ? mappedImages
+            : [
+                {
+                  id: 1,
+                  url: '/catalogo/placeholder.svg',
+                  alt_text: name,
+                  position: 1,
+                },
+              ],
+          is_shopify_fallback: true,
+        };
+      })
+      .filter(Boolean);
+  }
+} catch {
+  serverFallbackProducts = [];
+}
 ---
 
 <Layout title="Admin | ELEGILSA" description="Panel de administracion con metricas, catalogo, pedidos e invoices.">
@@ -27,8 +102,8 @@ import Layout from '../layouts/Layout.astro';
     <aside class="admin-sidebar panel">
       <h2 class="admin-sidebar-title">Gestion</h2>
       <nav class="admin-sidebar-nav" id="admin-tabs" aria-label="Secciones de administracion">
-        <a href="#dashboard" data-tab="dashboard" class="active">Dashboard</a>
-        <a href="#products" data-tab="products">Productos</a>
+        <a href="#dashboard" data-tab="dashboard">Dashboard</a>
+        <a href="#products" data-tab="products" class="active">Productos</a>
         <a href="#categories" data-tab="categories">Categorias</a>
         <a href="#orders" data-tab="orders">Pedidos</a>
         <a href="#users" data-tab="users">Usuarios</a>
@@ -40,13 +115,20 @@ import Layout from '../layouts/Layout.astro';
     </aside>
 
     <div class="admin-content" style="display: grid; gap: 1rem;">
-      <section id="admin-panel-dashboard" class="panel admin-panel">
+      <section id="admin-panel-dashboard" class="panel admin-panel" style="display: none;">
         <h2 style="margin-top: 0;">KPIs</h2>
         <div class="kpi-grid" id="kpi-grid"></div>
 
         <div class="panel" style="margin-top: 1rem;">
-          <h3 style="margin-top: 0;">Ventas por dia (ultimos 7 dias)</h3>
-          <div class="bar-chart" id="sales-bar-chart"></div>
+          <div class="compact-sales-head">
+            <h3 style="margin: 0;">Ventas del mes por semanas</h3>
+            <label class="compact-sales-filter">
+              <span>Mes</span>
+              <select id="compact-sales-month"></select>
+            </label>
+          </div>
+          <div class="compact-sales-grid" id="compact-sales-grid"></div>
+          <p id="compact-sales-total" class="compact-sales-total"></p>
         </div>
 
         <div class="panel" style="margin-top: 1rem;">
@@ -66,13 +148,20 @@ import Layout from '../layouts/Layout.astro';
         </div>
       </section>
 
-      <section id="admin-panel-products" class="panel admin-panel" style="display: none;">
+      <section id="admin-panel-products" class="panel admin-panel" style="display: block;">
         <div class="admin-page-head" style="margin-bottom: 0.6rem;">
           <div>
             <h2 style="margin: 0;">Productos</h2>
             <p style="margin: 0.2rem 0 0; color: var(--muted);">Crear, editar y eliminar. No se permite borrar productos con ventas.</p>
+            <p id="admin-catalog-status" class="admin-catalog-status" style="display: none;"></p>
+            <p id="admin-images-status" class="admin-catalog-status" style="display: none;"></p>
+            <p id="admin-products-debug" class="admin-catalog-status" style="display: none;"></p>
           </div>
-          <button id="create-product-btn" type="button">Nuevo producto</button>
+          <div class="row">
+            <button id="migrate-images-btn" type="button" class="btn secondary">Migrar fotos a Storage</button>
+            <button id="reload-catalog-btn" type="button" class="btn secondary">Recargar catálogo</button>
+            <button id="create-product-btn" type="button">Nuevo producto</button>
+          </div>
         </div>
 
         <div class="table-wrap">
@@ -85,10 +174,41 @@ import Layout from '../layouts/Layout.astro';
                 <th>Precio</th>
                 <th>Stock</th>
                 <th>Activo</th>
+                <th>Imagenes</th>
                 <th>Acciones</th>
               </tr>
             </thead>
-            <tbody></tbody>
+            <tbody>
+              {serverFallbackProducts.length > 0 ? (
+                serverFallbackProducts.slice(0, 120).map((product) => {
+                  const mainVariant = Array.isArray(product.product_variants) ? product.product_variants[0] : null;
+                  const images = Array.isArray(product.product_images) ? product.product_images : [];
+                  return (
+                    <tr>
+                      <td>{product.name}</td>
+                      <td>{product.slug}</td>
+                      <td>Sin categoria</td>
+                      <td>{new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((Number(product.price_cents) || 0) / 100)}</td>
+                      <td>{mainVariant ? Number(mainVariant.stock) || 0 : 0}</td>
+                      <td>{product.is_active ? 'Si' : 'No'}</td>
+                      <td>{images.length > 0 ? `${images.length} imagen(es)` : 'Sin imagenes'}</td>
+                      <td>
+                        <div class="row">
+                          <button type="button" class="btn secondary" disabled>Editar</button>
+                          <button type="button" class="btn secondary" disabled>Fotos</button>
+                          <button type="button" class="btn secondary" disabled>Ocultar</button>
+                          <button type="button" class="btn secondary" disabled>Eliminar</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colspan="8">Cargando productos...</td>
+                </tr>
+              )}
+            </tbody>
           </table>
         </div>
       </section>
@@ -222,6 +342,23 @@ import Layout from '../layouts/Layout.astro';
           Imagen principal (URL)
           <input name="image_url" type="url" maxlength="500" autocomplete="off" />
         </label>
+        <label style="grid-column: 1 / -1;">
+          Adjuntar foto
+          <input id="product-image-file" name="image_file" type="file" accept="image/*" />
+          <small>Si adjuntas una imagen, tendrá prioridad sobre la URL.</small>
+        </label>
+        <label style="grid-column: 1 / -1;">
+          Adjuntar más fotos (galería)
+          <input id="product-image-files" name="image_files" type="file" accept="image/*" multiple />
+          <small>Estas imágenes se añadirán al final de la galería.</small>
+        </label>
+        <label style="grid-column: 1 / -1;">
+          URLs adicionales (una por línea)
+          <textarea name="extra_image_urls" rows="2" maxlength="3000" placeholder="https://...\nhttps://..."></textarea>
+        </label>
+        <div class="admin-image-preview-wrap" style="grid-column: 1 / -1;">
+          <img id="product-image-preview" class="admin-image-preview" src="/catalogo/placeholder.svg" alt="Vista previa" />
+        </div>
         <div class="row admin-check-row" style="grid-column: 1 / -1;">
           <label class="checkbox-line compact">
             <input name="is_active" type="checkbox" checked />
@@ -271,7 +408,7 @@ import Layout from '../layouts/Layout.astro';
   </dialog>
 
   <dialog id="category-products-modal" class="admin-modal" aria-label="Productos de categoria">
-    <section class="panel admin-modal-panel" style="max-width: 600px;">
+    <section class="panel admin-modal-panel" style="max-width: 900px;">
       <h2 id="category-products-modal-title" style="margin-top: 0;">Gestionar Productos</h2>
       <p id="category-products-subtitle" style="color: var(--muted); margin-top: 0.2rem;"></p>
       
@@ -290,6 +427,7 @@ import Layout from '../layouts/Layout.astro';
           <thead>
             <tr>
               <th>Producto</th>
+              <th>Imagenes</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -303,7 +441,55 @@ import Layout from '../layouts/Layout.astro';
     </section>
   </dialog>
 
+  <dialog id="product-images-modal" class="admin-modal" aria-label="Gestion de imagenes de producto">
+    <section class="panel admin-modal-panel" style="max-width: 980px;">
+      <h2 id="product-images-modal-title" style="margin-top: 0;">Gestionar imagenes</h2>
+      <p id="product-images-modal-subtitle" style="color: var(--muted); margin-top: 0.2rem;"></p>
+
+      <div class="form-grid" style="margin-top: 0.8rem;">
+        <label style="grid-column: span 2;">
+          Nueva imagen (URL)
+          <input id="product-images-new-url" type="url" maxlength="600" autocomplete="off" placeholder="https://..." />
+        </label>
+        <label>
+          O subir archivo
+          <input id="product-images-new-file" type="file" accept="image/*" />
+        </label>
+        <label>
+          ALT
+          <input id="product-images-new-alt" type="text" maxlength="200" autocomplete="off" placeholder="Descripcion breve" />
+        </label>
+        <div class="checkout-actions" style="margin-top: 0; align-items: end;">
+          <button type="button" id="product-images-add-btn">Añadir imagen</button>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="margin-top: 0.9rem;">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Vista</th>
+              <th>URL</th>
+              <th>ALT</th>
+              <th>Principal</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="product-images-list"></tbody>
+        </table>
+      </div>
+
+      <p id="product-images-feedback" class="alert" style="display: none; margin-top: 0.7rem;"></p>
+
+      <div class="checkout-actions" style="margin-top: 1rem;">
+        <button type="button" class="btn secondary" id="product-images-close-btn">Cerrar</button>
+      </div>
+    </section>
+  </dialog>
+
   <p id="admin-global-feedback" class="alert" style="display: none; margin-top: 1rem;"></p>
+
+  <script id="admin-server-fallback-products" type="application/json" set:html={JSON.stringify(serverFallbackProducts)}></script>
 
   <!-- jsPDF & jsPDF-AutoTable para facturas -->
   <script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -315,14 +501,46 @@ import Layout from '../layouts/Layout.astro';
 
     const SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL || '';
     const SUPABASE_ANON_KEY = import.meta.env.PUBLIC_SUPABASE_ANON_KEY || '';
+    const PRODUCT_IMAGES_BUCKET = String(import.meta.env.PUBLIC_SUPABASE_PRODUCT_IMAGES_BUCKET || 'product-images').trim() || 'product-images';
+    const PRODUCT_IMAGES_BASE_URL = String(import.meta.env.PUBLIC_SUPABASE_PRODUCT_IMAGES_BASE_URL || '').trim();
+    const PRODUCT_IMAGE_MAX_MB = Math.max(1, Number(import.meta.env.PUBLIC_PRODUCT_IMAGE_MAX_MB || 8));
+    const ADMIN_EMAIL_PLACEHOLDERS = new Set(['admin@tudominio.com']);
     const ADMIN_EMAILS = String(import.meta.env.PUBLIC_ADMIN_EMAILS || '')
       .split(',')
       .map((entry) => entry.trim().toLowerCase())
-      .filter(Boolean);
+      .filter((entry) => entry && !ADMIN_EMAIL_PLACEHOLDERS.has(entry));
 
     const ORDERS_KEY = 'elegilsa_orders_v1';
     const INVOICES_KEY = 'elegilsa_invoices_v1';
     const RETURNS_KEY = 'elegilsa_returns_v1';
+    const ADMIN_CATALOG_CACHE_KEY = 'elegilsa_admin_catalog_cache_v1';
+    const ADMIN_IMAGE_MIGRATION_FLAG_KEY = 'elegilsa_admin_image_migration_done_v1';
+    const SHOPIFY_PRODUCTS_URL = 'https://elegilsa.com/products.json?limit=250';
+    const SERVER_FALLBACK_PRODUCTS = (() => {
+      try {
+        const raw = document.getElementById('admin-server-fallback-products')?.textContent || '[]';
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })();
+    const FALLBACK_IMAGES_BY_SLUG = (() => {
+      const map = new Map();
+      for (const product of SERVER_FALLBACK_PRODUCTS) {
+        const slug = String(product?.slug || '').trim();
+        if (!slug) continue;
+        const urls = Array.isArray(product?.product_images)
+          ? product.product_images
+              .map((image) => String(image?.url || '').trim())
+              .filter((url) => url.startsWith('http://') || url.startsWith('https://'))
+          : [];
+        if (urls.length > 0) {
+          map.set(slug, urls);
+        }
+      }
+      return map;
+    })();
 
     const authGate = document.getElementById('admin-auth-gate');
     const authStatus = document.getElementById('admin-auth-status');
@@ -332,7 +550,9 @@ import Layout from '../layouts/Layout.astro';
     const globalFeedback = document.getElementById('admin-global-feedback');
 
     const kpiGrid = document.getElementById('kpi-grid');
-    const barChart = document.getElementById('sales-bar-chart');
+    const compactSalesMonth = document.getElementById('compact-sales-month');
+    const compactSalesGrid = document.getElementById('compact-sales-grid');
+    const compactSalesTotal = document.getElementById('compact-sales-total');
 
     const topProductsTableBody = document.querySelector('#top-products-table tbody');
     const productsTableBody = document.querySelector('#products-table tbody');
@@ -345,8 +565,16 @@ import Layout from '../layouts/Layout.astro';
     const productModalTitle = document.getElementById('product-modal-title');
     const productForm = document.getElementById('product-form');
     const productFormFeedback = document.getElementById('product-form-feedback');
+    const productImageFileInput = document.getElementById('product-image-file');
+    const productImageFilesInput = document.getElementById('product-image-files');
+    const productImagePreview = document.getElementById('product-image-preview');
     const createProductBtn = document.getElementById('create-product-btn');
+    const reloadCatalogBtn = document.getElementById('reload-catalog-btn');
+    const migrateImagesBtn = document.getElementById('migrate-images-btn');
     const productCancelBtn = document.getElementById('product-cancel-btn');
+    const adminCatalogStatus = document.getElementById('admin-catalog-status');
+    const adminImagesStatus = document.getElementById('admin-images-status');
+    const adminProductsDebug = document.getElementById('admin-products-debug');
 
     const categoryModal = document.getElementById('category-modal');
     const categoryModalTitle = document.getElementById('category-modal-title');
@@ -357,8 +585,18 @@ import Layout from '../layouts/Layout.astro';
 
     const refreshInvoicesBtn = document.getElementById('refresh-invoices-btn');
     const logoutBtn = document.getElementById('admin-logout-btn');
+    const productImagesModal = document.getElementById('product-images-modal');
+    const productImagesModalTitle = document.getElementById('product-images-modal-title');
+    const productImagesModalSubtitle = document.getElementById('product-images-modal-subtitle');
+    const productImagesList = document.getElementById('product-images-list');
+    const productImagesNewUrl = document.getElementById('product-images-new-url');
+    const productImagesNewFile = document.getElementById('product-images-new-file');
+    const productImagesNewAlt = document.getElementById('product-images-new-alt');
+    const productImagesAddBtn = document.getElementById('product-images-add-btn');
+    const productImagesCloseBtn = document.getElementById('product-images-close-btn');
+    const productImagesFeedback = document.getElementById('product-images-feedback');
 
-    const tabs = Array.from(document.querySelectorAll('[data-tab]'));
+    const tabs = Array.from(document.querySelectorAll('#admin-tabs [data-tab]'));
     const panels = {
       dashboard: document.getElementById('admin-panel-dashboard'),
       products: document.getElementById('admin-panel-products'),
@@ -372,6 +610,11 @@ import Layout from '../layouts/Layout.astro';
     let currentUser = null;
     let categories = [];
     let products = [];
+    let adminOrders = [];
+    let adminInvoices = [];
+    let selectedCompactSalesMonth = null;
+    let uploadedProductImageDataUrl = null;
+    let currentImagesProductId = null;
 
     function setAuthStatus(message) {
       if (authStatus) authStatus.textContent = message;
@@ -441,21 +684,703 @@ import Layout from '../layouts/Layout.astro';
       localStorage.setItem(key, JSON.stringify(value));
     }
 
+    function setCatalogStatus(type, message) {
+      if (!adminCatalogStatus) return;
+      adminCatalogStatus.textContent = message;
+      adminCatalogStatus.classList.remove('ok', 'warning', 'danger');
+      if (type) {
+        adminCatalogStatus.classList.add(type);
+      }
+      adminCatalogStatus.style.display = message ? 'block' : 'none';
+    }
+
+    function setImagesStatus(type, message) {
+      if (!adminImagesStatus) return;
+      adminImagesStatus.textContent = message;
+      adminImagesStatus.classList.remove('ok', 'warning', 'danger');
+      if (type) {
+        adminImagesStatus.classList.add(type);
+      }
+      adminImagesStatus.style.display = message ? 'block' : 'none';
+    }
+
+    function setProductsDebug(type, message) {
+      if (!adminProductsDebug) return;
+      adminProductsDebug.textContent = message;
+      adminProductsDebug.classList.remove('ok', 'warning', 'danger');
+      if (type) {
+        adminProductsDebug.classList.add(type);
+      }
+      adminProductsDebug.style.display = message ? 'block' : 'none';
+    }
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function readCatalogCache() {
+      try {
+        const raw = localStorage.getItem(ADMIN_CATALOG_CACHE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!parsed || typeof parsed !== 'object') return null;
+        const cachedCategories = Array.isArray(parsed.categories) ? parsed.categories : null;
+        const cachedProducts = Array.isArray(parsed.products) ? parsed.products : null;
+        if (!cachedCategories || !cachedProducts) return null;
+        return {
+          categories: cachedCategories,
+          products: cachedProducts,
+          updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : null,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    function writeCatalogCache(payload) {
+      try {
+        localStorage.setItem(
+          ADMIN_CATALOG_CACHE_KEY,
+          JSON.stringify({
+            categories: payload.categories,
+            products: payload.products,
+            updatedAt: new Date().toISOString(),
+          })
+        );
+      } catch {}
+    }
+
+    function parseMaybeJson(value, fallback) {
+      if (Array.isArray(value) || (value && typeof value === 'object')) {
+        return value;
+      }
+
+      if (typeof value !== 'string') {
+        return fallback;
+      }
+
+      try {
+        const parsed = JSON.parse(value);
+        return parsed ?? fallback;
+      } catch {
+        return fallback;
+      }
+    }
+
+    function normalizeOrderItems(items) {
+      const source = Array.isArray(items) ? items : [];
+      return source.map((item) => ({
+        ...item,
+        productId: item?.productId ?? item?.product_id ?? null,
+        product_id: item?.product_id ?? item?.productId ?? null,
+        name: item?.name ?? item?.product_name ?? 'Producto',
+        quantity: Math.max(0, Number(item?.quantity) || 0),
+        unitPriceCents: Math.max(
+          0,
+          Number(item?.unitPriceCents ?? item?.unit_price_cents ?? item?.price_cents ?? 0) || 0
+        ),
+      }));
+    }
+
+    function normalizeOrderRow(row, itemsByOrderId = new Map()) {
+      const id = String(row?.id || '').trim();
+      if (!id) return null;
+
+      const remoteItems = itemsByOrderId.get(id);
+      const embeddedItems = parseMaybeJson(row?.items, []);
+      const shipping = parseMaybeJson(row?.shipping ?? row?.shipping_data, {});
+
+      return {
+        ...row,
+        id,
+        created_at: row?.created_at || new Date().toISOString(),
+        user_id: row?.user_id || row?.customer_id || row?.profile_id || null,
+        shipping_method: row?.shipping_method || row?.shipping_type || 'standard',
+        payment_method: row?.payment_method || row?.payment_type || 'stripe',
+        shipping: shipping && typeof shipping === 'object' ? shipping : {},
+        items: normalizeOrderItems(remoteItems && remoteItems.length ? remoteItems : embeddedItems),
+        subtotal_cents: Math.max(0, Number(row?.subtotal_cents) || 0),
+        shipping_cents: Math.max(0, Number(row?.shipping_cents) || 0),
+        total_cents: Math.max(
+          0,
+          Number(row?.total_cents ?? row?.amount_cents ?? row?.amount_total_cents ?? 0) || 0
+        ),
+        status: String(row?.status || 'pending'),
+      };
+    }
+
+    function normalizeInvoiceRow(row) {
+      const id = String(row?.id || '').trim();
+      const orderId = String(row?.order_id || row?.orderId || '').trim();
+      if (!id || !orderId) return null;
+
+      return {
+        ...row,
+        id,
+        order_id: orderId,
+        created_at: row?.created_at || new Date().toISOString(),
+        total_cents: Math.max(0, Number(row?.total_cents ?? row?.amount_cents ?? 0) || 0),
+        customer: row?.customer || row?.customer_name || row?.billing_name || 'Cliente',
+      };
+    }
+
+    function mergeRecords(primary, secondary) {
+      const merged = new Map();
+      for (const record of [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])]) {
+        const id = String(record?.id || '').trim();
+        if (!id || merged.has(id)) continue;
+        merged.set(id, record);
+      }
+      return [...merged.values()];
+    }
+
+    function buildDerivedInvoices(orders, explicitInvoices) {
+      const existing = new Map();
+      for (const invoice of explicitInvoices) {
+        existing.set(String(invoice.order_id || ''), invoice);
+      }
+
+      for (const order of orders) {
+        if (!order?.id || String(order.status || '') === 'cancelled') continue;
+        if (existing.has(String(order.id))) continue;
+        existing.set(String(order.id), {
+          id: `AUTO-${order.id}`,
+          order_id: order.id,
+          created_at: order.created_at || new Date().toISOString(),
+          total_cents: Number(order.total_cents) || 0,
+          customer: order.shipping?.full_name || order.user_id || 'Cliente',
+          auto_generated: true,
+        });
+      }
+
+      return [...existing.values()].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+    }
+
+    async function refreshBusinessData() {
+      const localOrders = readLocalArray(ORDERS_KEY);
+      const localInvoices = readLocalArray(INVOICES_KEY);
+
+      let remoteOrders = [];
+      let remoteInvoices = [];
+
+      try {
+        const ordersResult = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+        if (!ordersResult.error && Array.isArray(ordersResult.data)) {
+          let itemsByOrderId = new Map();
+          const itemsResult = await supabase.from('order_items').select('*').order('id', { ascending: true });
+          if (!itemsResult.error && Array.isArray(itemsResult.data)) {
+            itemsByOrderId = itemsResult.data.reduce((map, item) => {
+              const orderId = String(item?.order_id || '').trim();
+              if (!orderId) return map;
+              if (!map.has(orderId)) map.set(orderId, []);
+              map.get(orderId).push(item);
+              return map;
+            }, new Map());
+          }
+
+          remoteOrders = ordersResult.data
+            .map((row) => normalizeOrderRow(row, itemsByOrderId))
+            .filter(Boolean);
+        }
+      } catch {}
+
+      try {
+        const invoicesResult = await supabase.from('invoices').select('*').order('created_at', { ascending: false });
+        if (!invoicesResult.error && Array.isArray(invoicesResult.data)) {
+          remoteInvoices = invoicesResult.data.map(normalizeInvoiceRow).filter(Boolean);
+        }
+      } catch {}
+
+      adminOrders = mergeRecords(remoteOrders, localOrders).sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+      adminInvoices = buildDerivedInvoices(
+        adminOrders,
+        mergeRecords(remoteInvoices, localInvoices)
+          .map(normalizeInvoiceRow)
+          .filter(Boolean)
+      );
+    }
+
+    function resolveCatalogPathToFallbackUrl(pathLike, slugHint = '') {
+      const value = String(pathLike || '').trim();
+      if (!value.startsWith('/catalogo/')) return '';
+
+      let slug = String(slugHint || '').trim();
+      const normalized = value.replace(/^\/+/, '');
+      const parts = normalized.split('/');
+      if (!slug && parts.length >= 3 && parts[0] === 'catalogo') {
+        slug = String(parts[1] || '').trim();
+      }
+      if (!slug) return '';
+
+      const urls = FALLBACK_IMAGES_BY_SLUG.get(slug) || [];
+      if (urls.length === 0) return '';
+
+      const fileName = parts.length >= 3 ? parts[2] : '';
+      const indexMatch = String(fileName).match(/(\d+)/);
+      const imageIndex = Math.max(0, Number(indexMatch?.[1] || 1) - 1);
+      return urls[imageIndex] || urls[0] || '';
+    }
+
+    function getProductImagesBaseUrl() {
+      if (PRODUCT_IMAGES_BASE_URL) {
+        return PRODUCT_IMAGES_BASE_URL.replace(/\/+$/, '');
+      }
+
+      if (!SUPABASE_URL) return '';
+      return `${SUPABASE_URL.replace(/\/+$/, '')}/storage/v1/object/public/${PRODUCT_IMAGES_BUCKET}`;
+    }
+
+    function toStorageReference(rawValue) {
+      const value = String(rawValue || '').trim();
+      if (!value) return '';
+
+      const baseUrl = getProductImagesBaseUrl();
+      if (baseUrl && value.startsWith(`${baseUrl}/`)) {
+        return `${PRODUCT_IMAGES_BUCKET}/${value.slice(baseUrl.length + 1)}`;
+      }
+
+      if (value.includes(`/storage/v1/object/public/${PRODUCT_IMAGES_BUCKET}/`)) {
+        const [, storagePath = ''] = value.split(`/storage/v1/object/public/${PRODUCT_IMAGES_BUCKET}/`);
+        return storagePath ? `${PRODUCT_IMAGES_BUCKET}/${storagePath}` : '';
+      }
+
+      if (value.startsWith(`${PRODUCT_IMAGES_BUCKET}/`)) {
+        return value;
+      }
+
+      return value;
+    }
+
+    function resolveImageUrl(rawValue) {
+      const value = toStorageReference(rawValue);
+      if (!value) return '/catalogo/placeholder.svg';
+
+      if (value.startsWith('/catalogo/')) {
+        const fallbackUrl = resolveCatalogPathToFallbackUrl(value);
+        return fallbackUrl || '/catalogo/placeholder.svg';
+      }
+
+      if (
+        value.startsWith('http://') ||
+        value.startsWith('https://') ||
+        value.startsWith('data:image/') ||
+        value.startsWith('blob:')
+      ) {
+        return value;
+      }
+
+      if (value.startsWith('//')) {
+        return `https:${value}`;
+      }
+
+      if (value.startsWith('storage/v1/object/public/')) {
+        if (!SUPABASE_URL) return value;
+        return `${SUPABASE_URL.replace(/\/+$/, '')}/${value}`;
+      }
+
+      if (value.startsWith('/')) {
+        return value;
+      }
+
+      if (value.startsWith(`${PRODUCT_IMAGES_BUCKET}/`)) {
+        const baseUrl = getProductImagesBaseUrl();
+        const storagePath = value.slice(PRODUCT_IMAGES_BUCKET.length + 1);
+        return baseUrl ? `${baseUrl}/${storagePath}` : value;
+      }
+
+      if (!supabase) return value;
+      const storagePath = value.replace(/^\/+/, '');
+      const { data } = supabase.storage.from(PRODUCT_IMAGES_BUCKET).getPublicUrl(storagePath);
+      return String(data?.publicUrl || value);
+    }
+
+    function normalizeExt(file) {
+      const fromName = String(file?.name || '').split('.').pop()?.toLowerCase();
+      if (fromName && /^[a-z0-9]{2,6}$/.test(fromName)) return fromName;
+      const fromType = String(file?.type || '').split('/').pop()?.toLowerCase();
+      if (fromType === 'jpeg') return 'jpg';
+      if (fromType && /^[a-z0-9]{2,6}$/.test(fromType)) return fromType;
+      return 'jpg';
+    }
+
+    async function uploadProductImageFile(file, productId) {
+      if (!(file instanceof File) || !String(file.type || '').startsWith('image/')) {
+        throw new Error('Selecciona un archivo de imagen válido.');
+      }
+
+      const maxBytes = PRODUCT_IMAGE_MAX_MB * 1024 * 1024;
+      if (Number(file.size) > maxBytes) {
+        throw new Error(`La imagen supera ${PRODUCT_IMAGE_MAX_MB}MB.`);
+      }
+
+      const safeProductId = String(productId || 'tmp').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const ext = normalizeExt(file);
+      const randomSuffix = Math.random().toString(36).slice(2, 9);
+      const filePath = `${safeProductId}/${Date.now()}-${randomSuffix}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage.from(PRODUCT_IMAGES_BUCKET).upload(filePath, file, {
+        cacheControl: '31536000',
+        upsert: false,
+        contentType: file.type,
+      });
+
+      if (uploadError) {
+        throw new Error(`No se pudo subir a Storage (${PRODUCT_IMAGES_BUCKET}): ${uploadError.message}`);
+      }
+
+        throw new Error('No se pudo obtener URL pública de la imagen.');
+      return `${PRODUCT_IMAGES_BUCKET}/${filePath}`;
+    }
+
+    function isStorageHostedImage(url) {
+      const value = String(url || '').trim();
+      if (!value) return false;
+      if (value.includes(`/storage/v1/object/public/${PRODUCT_IMAGES_BUCKET}/`)) return true;
+      if (value.startsWith(`${PRODUCT_IMAGES_BUCKET}/`)) return true;
+      return false;
+    }
+
+    async function uploadProductImageFileLegacyBroken(file, productId) {
+      if (!(file instanceof File) || !String(file.type || '').startsWith('image/')) {
+        throw new Error('Selecciona un archivo de imagen valido.');
+      }
+
+      const maxBytes = PRODUCT_IMAGE_MAX_MB * 1024 * 1024;
+      if (Number(file.size) > maxBytes) {
+        throw new Error(`La imagen supera ${PRODUCT_IMAGE_MAX_MB}MB.`);
+      }
+
+      const safeProductId = String(productId || 'tmp').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const ext = normalizeExt(file);
+      const randomSuffix = Math.random().toString(36).slice(2, 9);
+      const filePath = `${safeProductId}/${Date.now()}-${randomSuffix}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage.from(PRODUCT_IMAGES_BUCKET).upload(filePath, file, {
+        cacheControl: '31536000',
+        upsert: false,
+        contentType: file.type,
+      });
+
+      if (uploadError) {
+        throw new Error(`No se pudo subir a Storage (${PRODUCT_IMAGES_BUCKET}): ${uploadError.message}`);
+      }
+
+      return `${PRODUCT_IMAGES_BUCKET}/${filePath}`;
+    }
+
+    function isStorageHostedImageLegacy(url) {
+      const value = toStorageReference(url);
+      if (!value) return false;
+      if (value.includes(`/storage/v1/object/public/${PRODUCT_IMAGES_BUCKET}/`)) return true;
+      if (value.startsWith(`${PRODUCT_IMAGES_BUCKET}/`)) return true;
+      return false;
+    }
+
+    async function fetchImageAsFile(url, fallbackName = 'imagen') {
+      const sourceUrl = resolveImageUrl(url);
+      const response = await fetch(sourceUrl, { mode: 'cors' });
+      if (!response.ok) {
+        throw new Error(`No se pudo descargar (${response.status})`);
+      }
+
+      const blob = await response.blob();
+      if (!String(blob.type || '').startsWith('image/')) {
+        throw new Error('El recurso no es una imagen.');
+      }
+
+      const ext = normalizeExt({ name: fallbackName, type: blob.type });
+      const filename = `${fallbackName}.${ext}`;
+      return new File([blob], filename, { type: blob.type || 'image/jpeg' });
+    }
+
+    async function migrateAllImagesToStorage() {
+      setImagesStatus('warning', 'Migrando imágenes a Supabase Storage...');
+
+      const { data: rows, error } = await supabase
+        .from('product_images')
+        .select('id,product_id,url,position')
+        .order('id', { ascending: true });
+
+      if (error) {
+        setImagesStatus('danger', `No se pudo leer product_images: ${error.message}`);
+        return { migrated: 0, skipped: 0, failed: 1 };
+      }
+
+      const images = Array.isArray(rows) ? rows : [];
+      if (images.length === 0) {
+        setImagesStatus('ok', 'No hay imágenes para migrar.');
+        return { migrated: 0, skipped: 0, failed: 0 };
+      }
+
+      const { data: productRows } = await supabase
+        .from('products')
+        .select('id,slug');
+      const slugByProductId = new Map(
+        (Array.isArray(productRows) ? productRows : [])
+          .map((row) => [String(row.id || ''), String(row.slug || '').trim()])
+      );
+
+      let migrated = 0;
+      let skipped = 0;
+      let failed = 0;
+
+      for (const image of images) {
+        const currentUrl = String(image.url || '').trim();
+        if (!currentUrl || currentUrl.startsWith('data:image/')) {
+          skipped += 1;
+          continue;
+        }
+
+        if (isStorageHostedImageLegacy(currentUrl)) {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          const slug = slugByProductId.get(String(image.product_id || '')) || '';
+          const sourceUrl = currentUrl.startsWith('/catalogo/')
+            ? resolveCatalogPathToFallbackUrl(currentUrl, slug)
+            : currentUrl;
+
+          if (!sourceUrl) {
+            failed += 1;
+            continue;
+          }
+
+          const file = await fetchImageAsFile(sourceUrl, `product-${image.product_id || 'img'}-${image.id}`);
+          const nextUrl = await uploadProductImageFileLegacyBroken(file, String(image.product_id || 'producto'));
+          const { error: updateError } = await supabase.from('product_images').update({ url: nextUrl }).eq('id', image.id);
+          if (updateError) {
+            failed += 1;
+            continue;
+          }
+          migrated += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+
+      await refreshAll();
+
+      if (failed > 0) {
+        setImagesStatus('warning', `Migración completada con incidencias: ${migrated} migradas, ${skipped} ya en Storage/omitidas, ${failed} con error.`);
+      } else {
+        setImagesStatus('ok', `Migración completada: ${migrated} migradas, ${skipped} ya en Storage/omitidas.`);
+      }
+
+      return { migrated, skipped, failed };
+    }
+
+    async function maybeAutoMigrateImages() {
+      if (localStorage.getItem(ADMIN_IMAGE_MIGRATION_FLAG_KEY) === '1') return;
+      const summary = await migrateAllImagesToStorage();
+      if (summary && summary.failed === 0) {
+        localStorage.setItem(ADMIN_IMAGE_MIGRATION_FLAG_KEY, '1');
+      }
+    }
+
+    function setProductImagePreview(src) {
+      if (!(productImagePreview instanceof HTMLImageElement)) return;
+      const safeSrc = resolveImageUrl(src);
+      productImagePreview.src = safeSrc;
+      productImagePreview.onerror = () => {
+        productImagePreview.src = '/catalogo/placeholder.svg';
+      };
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function prepareProductImageData(file) {
+      const rawDataUrl = await readFileAsDataUrl(file);
+      if (!rawDataUrl.startsWith('data:image/')) {
+        throw new Error('El archivo seleccionado no es una imagen válida.');
+      }
+      return rawDataUrl;
+    }
+
+    function toMonthKey(value) {
+      const date = new Date(value);
+      if (!Number.isFinite(date.getTime())) return null;
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      return `${date.getFullYear()}-${month}`;
+    }
+
+    function monthLabel(monthKey) {
+      const [year, month] = String(monthKey).split('-').map(Number);
+      if (!Number.isFinite(year) || !Number.isFinite(month)) return monthKey;
+      const date = new Date(year, month - 1, 1);
+      return new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' }).format(date);
+    }
+
+    function getDaysInMonth(monthKey) {
+      const [year, month] = String(monthKey).split('-').map(Number);
+      if (!Number.isFinite(year) || !Number.isFinite(month)) return 30;
+      return new Date(year, month, 0).getDate();
+    }
+
+    function getMonthWeekRanges(monthKey) {
+      const daysInMonth = getDaysInMonth(monthKey);
+      return [
+        { key: 'w1', label: 'Semana 1', startDay: 1, endDay: Math.min(7, daysInMonth) },
+        { key: 'w2', label: 'Semana 2', startDay: 8, endDay: Math.min(14, daysInMonth) },
+        { key: 'w3', label: 'Semana 3', startDay: 15, endDay: Math.min(21, daysInMonth) },
+        { key: 'w4', label: 'Semana 4', startDay: 22, endDay: daysInMonth },
+      ].filter((entry) => entry.startDay <= entry.endDay);
+    }
+
+    function updateCompactSalesSummary(orders) {
+      if (!compactSalesMonth || !compactSalesGrid || !compactSalesTotal) return;
+
+      const validOrders = (orders || []).filter((order) => order.status !== 'cancelled');
+      const monthSet = new Set();
+      monthSet.add(toMonthKey(new Date().toISOString()));
+      for (const order of validOrders) {
+        const key = toMonthKey(order.created_at);
+        if (key) monthSet.add(key);
+      }
+
+      const monthOptions = [...monthSet].filter(Boolean).sort((a, b) => b.localeCompare(a));
+      if (monthOptions.length === 0) {
+        compactSalesMonth.innerHTML = '';
+        compactSalesGrid.innerHTML = '<p class="search-state">Sin datos de ventas para mostrar.</p>';
+        compactSalesTotal.textContent = '';
+        return;
+      }
+
+      if (!selectedCompactSalesMonth || !monthOptions.includes(selectedCompactSalesMonth)) {
+        selectedCompactSalesMonth = monthOptions[0];
+      }
+
+      compactSalesMonth.innerHTML = monthOptions
+        .map((monthKey) => `<option value="${monthKey}" ${monthKey === selectedCompactSalesMonth ? 'selected' : ''}>${monthLabel(monthKey)}</option>`)
+        .join('');
+
+      const monthKey = selectedCompactSalesMonth;
+      const ranges = getMonthWeekRanges(monthKey);
+      const buckets = ranges.map((range) => ({ ...range, cents: 0, orders: 0 }));
+
+      for (const order of validOrders) {
+        if (toMonthKey(order.created_at) !== monthKey) continue;
+        const day = new Date(order.created_at).getDate();
+        const bucket = buckets.find((entry) => day >= entry.startDay && day <= entry.endDay);
+        if (!bucket) continue;
+        bucket.cents += Number(order.total_cents) || 0;
+        bucket.orders += 1;
+      }
+
+      const maxValue = Math.max(...buckets.map((entry) => entry.cents), 1);
+      const totalCents = buckets.reduce((acc, entry) => acc + entry.cents, 0);
+
+      compactSalesGrid.innerHTML = buckets
+        .map((entry) => {
+          const width = Math.max(14, Math.round((entry.cents / maxValue) * 100));
+          return `
+            <article class="compact-sales-card">
+              <p>${entry.label}</p>
+              <strong>${formatMoney(entry.cents)}</strong>
+              <small>${entry.orders} pedido(s) · días ${entry.startDay}-${entry.endDay}</small>
+              <div class="compact-sales-progress"><span style="width:${width}%"></span></div>
+            </article>
+          `;
+        })
+        .join('');
+
+      compactSalesTotal.textContent = `Total ${monthLabel(monthKey)}: ${formatMoney(totalCents)}`;
+    }
+
+    async function fetchShopifyProductsFallback() {
+      if (SERVER_FALLBACK_PRODUCTS.length > 0) {
+        return SERVER_FALLBACK_PRODUCTS.map((entry) => ({ ...entry }));
+      }
+
+      const response = await fetch(SHOPIFY_PRODUCTS_URL, {
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Shopify fallback ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const sourceProducts = Array.isArray(payload?.products) ? payload.products : [];
+
+      return sourceProducts
+        .map((entry, index) => {
+          const slug = String(entry?.handle || '').trim();
+          const name = String(entry?.title || '').trim();
+          if (!slug || !name) return null;
+
+          const firstVariant = Array.isArray(entry?.variants) ? entry.variants[0] : null;
+          const cents = Math.round(Number(firstVariant?.price || 0) * 100);
+          const compareCents = firstVariant?.compare_at_price ? Math.round(Number(firstVariant.compare_at_price) * 100) : null;
+          const stock = Number(firstVariant?.inventory_quantity || 0);
+          const imageUrl = Array.isArray(entry?.images) && entry.images[0]?.src ? String(entry.images[0].src) : '/catalogo/placeholder.svg';
+
+          return {
+            id: `shopify:${slug}:${index}`,
+            category_id: null,
+            slug,
+            name,
+            description: typeof entry?.body_html === 'string' ? entry.body_html.replace(/<[^>]+>/g, '').trim() : null,
+            price_cents: Number.isFinite(cents) && cents > 0 ? cents : 0,
+            compare_at_cents: Number.isFinite(compareCents) ? compareCents : null,
+            featured: false,
+            is_active: true,
+            created_at: String(entry?.published_at || new Date().toISOString()),
+            product_variants: [
+              {
+                id: `shopify-variant:${slug}`,
+                name: 'Talla única',
+                stock: Number.isFinite(stock) ? Math.max(0, stock) : 0,
+                is_active: true,
+                position: 1,
+              },
+            ],
+            product_images: [
+              {
+                id: 1,
+                url: imageUrl,
+                alt_text: name,
+                position: 1,
+              },
+            ],
+            is_shopify_fallback: true,
+          };
+        })
+        .filter(Boolean);
+    }
+
     function isAdminEmail(email) {
       if (!email) return false;
       if (ADMIN_EMAILS.length === 0) return true;
       return ADMIN_EMAILS.includes(String(email).trim().toLowerCase());
     }
 
-    function setTab(tab) {
-      tabs.forEach((entry) => {
-        const isActive = entry.getAttribute('data-tab') === tab;
-        entry.classList.toggle('active', isActive);
-      });
+    function forceShowPanel(tab) {
+      const safeTab = Object.prototype.hasOwnProperty.call(panels, tab) ? tab : 'dashboard';
+      const keys = Object.keys(panels);
 
-      Object.entries(panels).forEach(([name, panel]) => {
-        if (!panel) return;
-        panel.style.display = name === tab ? 'block' : 'none';
+      for (const key of keys) {
+        const panelEl = document.getElementById(`admin-panel-${key}`);
+        if (!(panelEl instanceof HTMLElement)) continue;
+        panelEl.style.display = key === safeTab ? 'block' : 'none';
+      }
+
+      return safeTab;
+    }
+
+    function setTab(tab) {
+      const safeTab = forceShowPanel(tab);
+
+      tabs.forEach((entry) => {
+        const isActive = entry.getAttribute('data-tab') === safeTab;
+        entry.classList.toggle('active', isActive);
       });
     }
 
@@ -470,55 +1395,181 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function getPrimaryImageUrl(product) {
-      const images = Array.isArray(product.product_images) ? product.product_images : [];
-      const sorted = [...images].sort((a, b) => (a.position || 0) - (b.position || 0));
+      const sorted = getSortedImages(product);
       return sorted[0]?.url || '/catalogo/placeholder.svg';
     }
 
-    async function ensureCatalogLoaded() {
+    function getSortedImages(product) {
+      const images = Array.isArray(product?.product_images) ? product.product_images : [];
+      return [...images].sort((a, b) => (a.position || 0) - (b.position || 0));
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function renderImageStrip(product) {
+      const images = getSortedImages(product);
+      if (images.length === 0) {
+        return '<span class="admin-image-empty">Sin imagenes</span>';
+      }
+
+      const thumbnails = images
+        .slice(0, 4)
+        .map((img, index) => {
+          const label = index === 0 ? 'Principal' : `Imagen ${index + 1}`;
+          const src = resolveImageUrl(img.url || '/catalogo/placeholder.svg');
+          return `<img class="admin-thumb ${index === 0 ? 'is-primary' : ''}" src="${escapeHtml(src)}" alt="${escapeHtml(img.alt_text || label)}" title="${escapeHtml(label)}" loading="lazy" onerror="this.onerror=null;this.src='/catalogo/placeholder.svg'" />`;
+        })
+        .join('');
+      const extra = images.length > 4 ? `<span class="admin-thumb-more">+${images.length - 4}</span>` : '';
+      return `<div class="admin-image-strip">${thumbnails}${extra}</div>`;
+    }
+
+    async function fetchCatalogFromSupabase() {
       const categoriesResult = await supabase
         .from('categories')
         .select('id,slug,name,description,created_at')
         .order('name', { ascending: true });
-
-      if (categoriesResult.error) {
-        throw categoriesResult.error;
-      }
+      const categoriesRows = categoriesResult.error ? [] : categoriesResult.data || [];
 
       const productsResult = await supabase
         .from('products')
-        .select('id,category_id,slug,name,description,price_cents,compare_at_cents,featured,is_active,created_at,product_variants(id,name,stock,price_cents,is_active,position),product_images(id,url,alt_text,position)')
+        .select('id,category_id,slug,name,description,price_cents,compare_at_cents,featured,is_active,created_at')
         .order('created_at', { ascending: false });
 
+      let productRows = productsResult.data || [];
       if (productsResult.error) {
-        throw productsResult.error;
+        const activeProductsResult = await supabase
+          .from('products')
+          .select('id,category_id,slug,name,description,price_cents,compare_at_cents,featured,is_active,created_at')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false });
+
+        if (activeProductsResult.error) {
+          throw productsResult.error;
+        }
+
+        productRows = activeProductsResult.data || [];
       }
 
-      categories = categoriesResult.data || [];
-      products = productsResult.data || [];
+      let variants = [];
+      const variantsResult = await supabase
+        .from('product_variants')
+        .select('id,product_id,name,stock,price_cents,is_active,position')
+        .order('position', { ascending: true });
+      if (!variantsResult.error && Array.isArray(variantsResult.data)) {
+        variants = variantsResult.data;
+      }
+
+      let images = [];
+      const imagesResult = await supabase
+        .from('product_images')
+        .select('id,product_id,url,alt_text,position')
+        .order('position', { ascending: true });
+      if (!imagesResult.error && Array.isArray(imagesResult.data)) {
+        images = imagesResult.data;
+      }
+
+      const variantsByProduct = new Map();
+      for (const variant of variants) {
+        const key = String(variant.product_id || '');
+        if (!variantsByProduct.has(key)) variantsByProduct.set(key, []);
+        variantsByProduct.get(key).push(variant);
+      }
+
+      const imagesByProduct = new Map();
+      for (const image of images) {
+        const key = String(image.product_id || '');
+        if (!imagesByProduct.has(key)) imagesByProduct.set(key, []);
+        imagesByProduct.get(key).push(image);
+      }
+
+      const mergedProducts = productRows.map((product) => ({
+        ...product,
+        product_variants: variantsByProduct.get(String(product.id)) || [],
+        product_images: imagesByProduct.get(String(product.id)) || [],
+      }));
+
+      return {
+        categories: categoriesRows,
+        products: mergedProducts,
+      };
     }
 
-    function buildSalesByDay(orders) {
-      const buckets = [];
-      const now = new Date();
+    async function ensureCatalogLoaded() {
+      const cachedCatalog = readCatalogCache();
+      let lastError = null;
 
-      for (let i = 6; i >= 0; i -= 1) {
-        const day = new Date(now);
-        day.setHours(0, 0, 0, 0);
-        day.setDate(day.getDate() - i);
-        const key = day.toISOString().slice(0, 10);
-        buckets.push({ key, label: new Intl.DateTimeFormat('es-ES', { weekday: 'short' }).format(day), cents: 0 });
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          const fresh = await fetchCatalogFromSupabase();
+
+          if (fresh.products.length === 0) {
+            if (cachedCatalog?.products?.length) {
+              categories = cachedCatalog.categories;
+              products = cachedCatalog.products;
+              setCatalogStatus('warning', 'Supabase devolvió 0 productos. Mostrando el último catálogo guardado.');
+              return;
+            }
+
+            if (SERVER_FALLBACK_PRODUCTS.length > 0) {
+              categories = fresh.categories || [];
+              products = SERVER_FALLBACK_PRODUCTS.map((entry) => ({ ...entry }));
+              setCatalogStatus('warning', 'Supabase devolvió 0 productos. Mostrando catálogo de respaldo del servidor.');
+              return;
+            }
+
+            try {
+              const fallbackProducts = await fetchShopifyProductsFallback();
+              if (fallbackProducts.length > 0) {
+                categories = fresh.categories || [];
+                products = fallbackProducts;
+                setCatalogStatus('warning', 'Supabase devolvió 0 productos. Mostrando catálogo de respaldo (Shopify).');
+                return;
+              }
+            } catch {}
+          }
+
+          categories = fresh.categories;
+          products = fresh.products;
+          writeCatalogCache(fresh);
+
+          const updatedAt = new Intl.DateTimeFormat('es-ES', { dateStyle: 'short', timeStyle: 'short' }).format(new Date());
+          setCatalogStatus('ok', `Catálogo actualizado · ${updatedAt} · ${products.length} producto(s)`);
+          return;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 3) {
+            await sleep(220 * attempt);
+          }
+        }
       }
 
-      for (const order of orders) {
-        const key = String(order.created_at || '').slice(0, 10);
-        const bucket = buckets.find((entry) => entry.key === key);
-        if (!bucket) continue;
-        if (order.status === 'cancelled') continue;
-        bucket.cents += Number(order.total_cents) || 0;
+      if (cachedCatalog?.products?.length) {
+        categories = cachedCatalog.categories;
+        products = cachedCatalog.products;
+        setCatalogStatus('warning', 'No se pudo refrescar el catálogo. Mostrando datos guardados localmente.');
+        return;
       }
 
-      return buckets;
+      try {
+        const fallbackProducts = await fetchShopifyProductsFallback();
+        if (fallbackProducts.length > 0) {
+          categories = cachedCatalog?.categories || [];
+          products = fallbackProducts;
+          setCatalogStatus('warning', 'Mostrando catálogo de respaldo (Shopify). Revisa permisos de Supabase para edición completa.');
+          return;
+        }
+      } catch {}
+
+      setCatalogStatus('danger', 'No se pudo cargar el catálogo. Pulsa Recargar catálogo para reintentar.');
+      throw lastError || new Error('No se pudo cargar el catálogo de administración.');
     }
 
     function computeTopProducts(orders) {
@@ -542,7 +1593,7 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function renderDashboard() {
-      const orders = readLocalArray(ORDERS_KEY);
+      const orders = adminOrders;
       const returns = readLocalArray(RETURNS_KEY);
       const topProducts = computeTopProducts(orders);
 
@@ -562,14 +1613,7 @@ import Layout from '../layouts/Layout.astro';
         .map((item) => `<article class="panel"><h3>${item.label}</h3><p>${item.value}</p></article>`)
         .join('');
 
-      const bars = buildSalesByDay(orders);
-      const peak = Math.max(...bars.map((bar) => bar.cents), 1);
-      barChart.innerHTML = bars
-        .map((bar) => {
-          const height = Math.max(8, Math.round((bar.cents / peak) * 180));
-          return `<article class="bar-item"><div class="bar bar-paid" style="height:${height}px"></div><strong class="bar-value">${formatMoney(bar.cents)}</strong><span class="bar-label">${bar.label}</span></article>`;
-        })
-        .join('');
+      updateCompactSalesSummary(orders);
 
       topProductsTableBody.innerHTML = topProducts.length
         ? topProducts
@@ -579,27 +1623,38 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function renderProductsTable() {
-      productsTableBody.innerHTML = products.length
-        ? products
-            .map((product) => {
-              const variant = getPrimaryVariant(product);
-              return `<tr>
-                <td>${product.name}</td>
-                <td>${product.slug}</td>
-                <td>${getCategoryName(product.category_id)}</td>
-                <td>${formatMoney(product.price_cents)}</td>
-                <td>${variant ? Number(variant.stock) || 0 : 0}</td>
-                <td>${product.is_active ? 'Si' : 'No'}</td>
-                <td>
-                  <div class="row">
-                    <button type="button" class="btn secondary" data-action="edit-product" data-id="${product.id}">Editar</button>
-                    <button type="button" class="btn secondary" data-action="delete-product" data-id="${product.id}">Eliminar</button>
-                  </div>
-                </td>
-              </tr>`;
-            })
-            .join('')
-        : '<tr><td colspan="7">No hay productos.</td></tr>';
+      if (!productsTableBody) return;
+
+      try {
+        productsTableBody.innerHTML = products.length
+          ? products
+              .map((product) => {
+                const variant = getPrimaryVariant(product);
+                const isFallback = Boolean(product.is_shopify_fallback) || String(product.id || '').startsWith('shopify:');
+                return `<tr>
+                  <td>${product.name}</td>
+                  <td>${product.slug}</td>
+                  <td>${getCategoryName(product.category_id)}</td>
+                  <td>${formatMoney(product.price_cents)}</td>
+                  <td>${variant ? Number(variant.stock) || 0 : 0}</td>
+                  <td>${product.is_active ? 'Si' : 'No'}</td>
+                  <td>${renderImageStrip(product)}</td>
+                  <td>
+                    <div class="row">
+                      <button type="button" class="btn secondary" data-action="edit-product" data-id="${product.id}" ${isFallback ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>Editar</button>
+                      <button type="button" class="btn secondary" data-action="manage-product-images" data-id="${product.id}" ${isFallback ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>Fotos</button>
+                      <button type="button" class="btn secondary" data-action="toggle-product-visibility" data-id="${product.id}" data-next-active="${product.is_active ? '0' : '1'}" ${isFallback ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>${product.is_active ? 'Ocultar' : 'Mostrar'}</button>
+                      <button type="button" class="btn secondary" data-action="delete-product" data-id="${product.id}" ${isFallback ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>Eliminar</button>
+                    </div>
+                  </td>
+                </tr>`;
+              })
+              .join('')
+          : '<tr><td colspan="8">No hay productos visibles. Si esperabas productos, pulsa "Recargar catálogo".</td></tr>';
+      } catch (error) {
+        productsTableBody.innerHTML = '<tr><td colspan="8">No se pudo renderizar la tabla de productos.</td></tr>';
+        setProductsDebug('danger', `Error renderizando productos: ${error?.message || 'desconocido'}`);
+      }
     }
 
     function renderCategoriesTable() {
@@ -613,10 +1668,23 @@ import Layout from '../layouts/Layout.astro';
                 <td>${category.description || '—'}</td>
                 <td>${total}</td>
                 <td>
-                  <div class="row">
-                    <button type="button" class="btn secondary" data-action="view-category-products" data-id="${category.id}">Ver Productos</button>
-                    <button type="button" class="btn secondary" data-action="edit-category" data-id="${category.id}">Editar</button>
-                    <button type="button" class="btn secondary" data-action="delete-category" data-id="${category.id}">Eliminar</button>
+                  <div class="admin-category-actions">
+                    <button type="button" class="btn admin-view-products-btn" data-action="view-category-products" data-id="${category.id}">Ver Productos</button>
+                    <button type="button" class="admin-icon-btn" data-action="edit-category" data-id="${category.id}" aria-label="Editar ${category.name}" title="Editar categoría">
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M12 20h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+                      </svg>
+                    </button>
+                    <span class="admin-danger-wrap">
+                      <button type="button" class="admin-icon-btn danger" data-action="delete-category" data-id="${category.id}" aria-label="Eliminar ${category.name}" title="Eliminar categoría">
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path d="M4 7h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                          <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.8"></path>
+                          <path d="M7 7l1 12a1 1 0 0 0 1 .9h6a1 1 0 0 0 1-.9L17 7" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+                        </svg>
+                      </button>
+                    </span>
                   </div>
                 </td>
               </tr>`;
@@ -626,7 +1694,7 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function renderOrdersTable() {
-      const orders = readLocalArray(ORDERS_KEY);
+      const orders = adminOrders;
       const returns = readLocalArray(RETURNS_KEY);
 
       ordersTableBody.innerHTML = orders.length
@@ -668,7 +1736,7 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function renderUsersTable() {
-      const orders = readLocalArray(ORDERS_KEY);
+      const orders = adminOrders;
       const grouped = new Map();
 
       for (const order of orders) {
@@ -722,11 +1790,12 @@ import Layout from '../layouts/Layout.astro';
 
       invoices.unshift(invoice);
       writeLocalArray(INVOICES_KEY, invoices);
+      adminInvoices = buildDerivedInvoices(adminOrders, mergeRecords(adminInvoices, invoices));
       return invoice;
     }
 
     function renderInvoicesTable() {
-      const invoices = readLocalArray(INVOICES_KEY);
+      const invoices = adminInvoices;
 
       invoicesTableBody.innerHTML = invoices.length
         ? invoices
@@ -747,9 +1816,11 @@ import Layout from '../layouts/Layout.astro';
       const select = productForm?.elements?.namedItem('category_id');
       if (!(select instanceof HTMLSelectElement)) return;
 
-      select.innerHTML = categories
+      select.innerHTML = categories.length
+        ? categories
         .map((category) => `<option value="${category.id}">${category.name}</option>`)
-        .join('');
+        .join('')
+        : '<option value="">Sin categorias disponibles</option>';
     }
 
     function resetProductForm() {
@@ -759,6 +1830,18 @@ import Layout from '../layouts/Layout.astro';
       productForm.elements.namedItem('image_id').value = '';
       productForm.elements.namedItem('is_active').checked = true;
       productForm.elements.namedItem('featured').checked = false;
+      uploadedProductImageDataUrl = null;
+      if (productImageFileInput instanceof HTMLInputElement) {
+        productImageFileInput.value = '';
+      }
+      if (productImageFilesInput instanceof HTMLInputElement) {
+        productImageFilesInput.value = '';
+      }
+      const extraUrls = productForm.elements.namedItem('extra_image_urls');
+      if (extraUrls instanceof HTMLTextAreaElement) {
+        extraUrls.value = '';
+      }
+      setProductImagePreview('/catalogo/placeholder.svg');
       hideAlert(productFormFeedback);
       productModalTitle.textContent = 'Nuevo producto';
       populateCategorySelect();
@@ -787,6 +1870,11 @@ import Layout from '../layouts/Layout.astro';
         productForm.elements.namedItem('image_url').value = image?.url || '';
         productForm.elements.namedItem('is_active').checked = Boolean(product.is_active);
         productForm.elements.namedItem('featured').checked = Boolean(product.featured);
+        const extraUrls = productForm.elements.namedItem('extra_image_urls');
+        if (extraUrls instanceof HTMLTextAreaElement) {
+          extraUrls.value = '';
+        }
+        setProductImagePreview(image?.url || '/catalogo/placeholder.svg');
       }
 
       productModal.showModal();
@@ -810,6 +1898,7 @@ import Layout from '../layouts/Layout.astro';
     let currentManageCategoryId = null;
 
     categoryProductsCloseBtn?.addEventListener('click', () => categoryProductsModal.close());
+    productImagesCloseBtn?.addEventListener('click', () => productImagesModal.close());
 
     categoryAddProductBtn?.addEventListener('click', async () => {
       const productId = categoryAddProductSelect.value;
@@ -826,17 +1915,31 @@ import Layout from '../layouts/Layout.astro';
     });
 
     categoryProductsList?.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button[data-action="remove-product-cat"]');
+      const btn = e.target.closest('button[data-action]');
       if (!btn) return;
+
+      const action = btn.getAttribute('data-action');
       const productId = btn.getAttribute('data-id');
-      const { error } = await supabase.from('products').update({ category_id: null }).eq('id', productId);
-      if (error) {
-        showGlobal('danger', `No se pudo remover el producto: ${error.message}`);
+      if (!productId) return;
+
+      if (action === 'manage-product-images-cat') {
+        if (categoryProductsModal?.open) {
+          categoryProductsModal.close();
+        }
+        openProductImagesModal(productId);
         return;
       }
-      showGlobal('ok', 'Producto removido de la categoría.');
-      await refreshAll();
-      openCategoryProductsModal(currentManageCategoryId);
+
+      if (action === 'remove-product-cat') {
+        const { error } = await supabase.from('products').update({ category_id: null }).eq('id', productId);
+        if (error) {
+          showGlobal('danger', `No se pudo remover el producto: ${error.message}`);
+          return;
+        }
+        showGlobal('ok', 'Producto removido de la categoría.');
+        await refreshAll();
+        openCategoryProductsModal(currentManageCategoryId);
+      }
     });
 
     function openCategoryProductsModal(categoryId) {
@@ -851,17 +1954,183 @@ import Layout from '../layouts/Layout.astro';
       categoryProductsList.innerHTML = catProducts.length ? catProducts.map(p => `
         <tr>
           <td>${p.name}</td>
+          <td>${renderImageStrip(p)}</td>
           <td>
-            <button type="button" class="btn secondary" data-action="remove-product-cat" data-id="${p.id}">Quitar</button>
+            <div class="row">
+              <button type="button" class="btn secondary" data-action="manage-product-images-cat" data-id="${p.id}" ${(Boolean(p.is_shopify_fallback) || String(p.id || '').startsWith('shopify:')) ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>Fotos</button>
+              <button type="button" class="btn secondary" data-action="remove-product-cat" data-id="${p.id}">Quitar</button>
+            </div>
           </td>
         </tr>
-      `).join('') : '<tr><td colspan="2">No hay productos.</td></tr>';
+      `).join('') : '<tr><td colspan="3">No hay productos.</td></tr>';
 
       const unassignedProducts = products.filter(p => String(p.category_id) !== String(categoryId));
       categoryAddProductSelect.innerHTML = '<option value="">Selecciona un producto...</option>' + 
         unassignedProducts.map(p => `<option value="${p.id}">${p.name} (Actual: ${getCategoryName(p.category_id)})</option>`).join('');
 
       categoryProductsModal.showModal();
+    }
+
+    function renderProductImagesModalContent(productId) {
+      const product = products.find((entry) => String(entry.id) === String(productId));
+      if (!product) {
+        productImagesList.innerHTML = '<tr><td colspan="5">Producto no encontrado.</td></tr>';
+        return;
+      }
+
+      const sorted = getSortedImages(product);
+      productImagesModalTitle.textContent = `Fotos: ${product.name}`;
+      productImagesModalSubtitle.textContent = `${sorted.length} imagen(es) asociada(s).`;
+
+      productImagesList.innerHTML = sorted.length
+        ? sorted
+            .map((image, index) => `
+              <tr>
+                <td><img class="admin-thumb is-lg ${index === 0 ? 'is-primary' : ''}" src="${escapeHtml(resolveImageUrl(image.url || '/catalogo/placeholder.svg'))}" alt="${escapeHtml(image.alt_text || product.name)}" loading="lazy" onerror="this.onerror=null;this.src='/catalogo/placeholder.svg'" /></td>
+                <td><input type="url" class="admin-inline-input" data-field="url" data-image-id="${image.id}" value="${escapeHtml(image.url || '')}" placeholder="URL pública o ruta de Storage" /></td>
+                <td><input type="text" class="admin-inline-input" data-field="alt" data-image-id="${image.id}" value="${escapeHtml(image.alt_text || '')}" /></td>
+                <td><strong>${index === 0 ? 'Si' : 'No'}</strong></td>
+                <td>
+                  <div class="row">
+                    <button type="button" class="btn secondary" data-action="save-product-image" data-id="${image.id}">Guardar</button>
+                    <button type="button" class="btn secondary" data-action="set-primary-product-image" data-id="${image.id}" ${index === 0 ? 'disabled' : ''}>Principal</button>
+                    <button type="button" class="btn secondary" data-action="delete-product-image" data-id="${image.id}">Borrar</button>
+                  </div>
+                </td>
+              </tr>
+            `)
+            .join('')
+        : '<tr><td colspan="5">Este producto no tiene imágenes todavía.</td></tr>';
+    }
+
+    function openProductImagesModal(productId) {
+      currentImagesProductId = String(productId || '');
+      if (!currentImagesProductId) return;
+
+      hideAlert(productImagesFeedback);
+      if (productImagesNewUrl instanceof HTMLInputElement) {
+        productImagesNewUrl.value = '';
+      }
+      if (productImagesNewFile instanceof HTMLInputElement) {
+        productImagesNewFile.value = '';
+      }
+      if (productImagesNewAlt instanceof HTMLInputElement) {
+        productImagesNewAlt.value = '';
+      }
+
+      renderProductImagesModalContent(currentImagesProductId);
+      if (!productImagesModal.open) {
+        productImagesModal.showModal();
+      }
+    }
+
+    async function addProductImage(productId, imageUrl, altText, imageFile = null) {
+      const product = products.find((entry) => String(entry.id) === String(productId));
+      if (!product) {
+        showAlert(productImagesFeedback, 'danger', 'Producto no encontrado para añadir imagen.');
+        return;
+      }
+
+      let finalUrl = toStorageReference(imageUrl);
+      if (imageFile instanceof File) {
+        try {
+          finalUrl = await uploadProductImageFileLegacyBroken(imageFile, productId || 'producto');
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'No se pudo subir imagen.';
+          showAlert(productImagesFeedback, 'danger', reason);
+          return;
+        }
+      }
+
+      if (!finalUrl) {
+        showAlert(productImagesFeedback, 'danger', 'Debes indicar URL o adjuntar un archivo de imagen.');
+        return;
+      }
+
+      const maxPosition = getSortedImages(product).reduce((acc, image) => Math.max(acc, Number(image.position) || 0), 0);
+      const { error } = await supabase.from('product_images').insert({
+        product_id: productId,
+        url: toStorageReference(finalUrl),
+        alt_text: altText || product.name,
+        position: maxPosition + 1,
+      });
+
+      if (error) {
+        showAlert(productImagesFeedback, 'danger', `No se pudo añadir la imagen: ${error.message}`);
+        return;
+      }
+
+      await refreshAll();
+      renderProductImagesModalContent(productId);
+      showAlert(productImagesFeedback, 'ok', 'Imagen añadida.');
+    }
+
+    async function saveProductImage(imageId) {
+      const urlInput = productImagesList.querySelector(`input[data-field="url"][data-image-id="${imageId}"]`);
+      const altInput = productImagesList.querySelector(`input[data-field="alt"][data-image-id="${imageId}"]`);
+      const nextUrl = toStorageReference(urlInput?.value);
+      const nextAlt = String(altInput?.value || '').trim();
+
+      if (!nextUrl) {
+        showAlert(productImagesFeedback, 'danger', 'La URL de imagen no puede estar vacía.');
+        return;
+      }
+
+      const { error } = await supabase.from('product_images').update({ url: nextUrl, alt_text: nextAlt || null }).eq('id', imageId);
+      if (error) {
+        showAlert(productImagesFeedback, 'danger', `No se pudo guardar la imagen: ${error.message}`);
+        return;
+      }
+
+      await refreshAll();
+      renderProductImagesModalContent(currentImagesProductId);
+      showAlert(productImagesFeedback, 'ok', 'Imagen actualizada.');
+    }
+
+    async function setPrimaryProductImage(productId, imageId) {
+      const product = products.find((entry) => String(entry.id) === String(productId));
+      if (!product) {
+        showAlert(productImagesFeedback, 'danger', 'Producto no encontrado.');
+        return;
+      }
+
+      const sorted = getSortedImages(product);
+      if (sorted.length <= 1) {
+        showAlert(productImagesFeedback, 'ok', 'Ya existe una única imagen principal.');
+        return;
+      }
+
+      const selected = sorted.find((entry) => String(entry.id) === String(imageId));
+      if (!selected) {
+        showAlert(productImagesFeedback, 'danger', 'Imagen no encontrada.');
+        return;
+      }
+
+      const reordered = [selected, ...sorted.filter((entry) => String(entry.id) !== String(imageId))];
+      for (let index = 0; index < reordered.length; index += 1) {
+        const image = reordered[index];
+        const { error } = await supabase.from('product_images').update({ position: index + 1 }).eq('id', image.id).eq('product_id', productId);
+        if (error) {
+          showAlert(productImagesFeedback, 'danger', `No se pudo actualizar orden de imágenes: ${error.message}`);
+          return;
+        }
+      }
+
+      await refreshAll();
+      renderProductImagesModalContent(productId);
+      showAlert(productImagesFeedback, 'ok', 'Imagen principal actualizada.');
+    }
+
+    async function deleteProductImage(imageId) {
+      const { error } = await supabase.from('product_images').delete().eq('id', imageId);
+      if (error) {
+        showAlert(productImagesFeedback, 'danger', `No se pudo borrar imagen: ${error.message}`);
+        return;
+      }
+
+      await refreshAll();
+      renderProductImagesModalContent(currentImagesProductId);
+      showAlert(productImagesFeedback, 'ok', 'Imagen eliminada.');
     }
 
     function openCategoryModal(categoryId = null) {
@@ -880,8 +2149,7 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function hasLocalSales(productId) {
-      const orders = readLocalArray(ORDERS_KEY);
-      return orders.some((order) => (order.items || []).some((item) => String(item.productId || item.product_id) === String(productId)));
+      return adminOrders.some((order) => (order.items || []).some((item) => String(item.productId || item.product_id) === String(productId)));
     }
 
     async function hasRemoteSales(productId) {
@@ -899,7 +2167,7 @@ import Layout from '../layouts/Layout.astro';
 
     async function deleteProduct(productId) {
       if (hasLocalSales(productId) || (await hasRemoteSales(productId))) {
-        showGlobal('danger', 'No puedes borrar un producto con ventas asociadas.');
+        showGlobal('danger', 'No puedes borrar un producto con ventas asociadas. Usa "Ocultar" para retirarlo de la tienda.');
         return;
       }
 
@@ -925,6 +2193,18 @@ import Layout from '../layouts/Layout.astro';
       showGlobal('ok', 'Producto eliminado.');
     }
 
+    async function toggleProductVisibility(productId, nextActive) {
+      const isActive = Boolean(nextActive);
+      const { error } = await supabase.from('products').update({ is_active: isActive }).eq('id', productId);
+      if (error) {
+        showGlobal('danger', `No se pudo actualizar visibilidad: ${error.message}`);
+        return;
+      }
+
+      await refreshAll();
+      showGlobal('ok', isActive ? 'Producto visible en tienda.' : 'Producto oculto correctamente.');
+    }
+
     async function saveProduct(event) {
       event.preventDefault();
       hideAlert(productFormFeedback);
@@ -942,9 +2222,24 @@ import Layout from '../layouts/Layout.astro';
       const comparePriceRaw = String(productForm.elements.namedItem('compare_price').value || '').trim();
       const compareAtCents = comparePriceRaw ? euroToCents(comparePriceRaw) : null;
       const stock = Math.max(0, Math.round(Number(productForm.elements.namedItem('stock').value || 0)));
-      const imageUrl = String(productForm.elements.namedItem('image_url').value || '').trim();
+      const imageUrlInput = String(productForm.elements.namedItem('image_url').value || '').trim();
+      const extraImageUrlsInput = String(productForm.elements.namedItem('extra_image_urls')?.value || '').trim();
       const isActive = Boolean(productForm.elements.namedItem('is_active').checked);
       const featured = Boolean(productForm.elements.namedItem('featured').checked);
+
+      let imageUrl = toStorageReference(imageUrlInput);
+      const selectedImageFile = productImageFileInput instanceof HTMLInputElement ? productImageFileInput.files?.[0] || null : null;
+      const selectedGalleryFiles = productImageFilesInput instanceof HTMLInputElement ? Array.from(productImageFilesInput.files || []) : [];
+      if (selectedImageFile) {
+        try {
+          uploadedProductImageDataUrl = await prepareProductImageData(selectedImageFile);
+          setProductImagePreview(uploadedProductImageDataUrl);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'No se pudo procesar la imagen adjunta.';
+          showAlert(productFormFeedback, 'danger', reason);
+          return;
+        }
+      }
 
       if (!name || !slug || !Number.isFinite(categoryId) || categoryId <= 0) {
         showAlert(productFormFeedback, 'danger', 'Completa nombre, slug y categoria.');
@@ -979,6 +2274,16 @@ import Layout from '../layouts/Layout.astro';
         productId = data.id;
       }
 
+      if (selectedImageFile) {
+        try {
+          imageUrl = await uploadProductImageFileLegacyBroken(selectedImageFile, productId || 'producto');
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'No se pudo subir la imagen a Storage.';
+          showAlert(productFormFeedback, 'danger', reason);
+          return;
+        }
+      }
+
       if (variantId) {
         const { error } = await supabase
           .from('product_variants')
@@ -1009,7 +2314,7 @@ import Layout from '../layouts/Layout.astro';
 
       if (imageUrl) {
         if (imageId) {
-          const { error } = await supabase.from('product_images').update({ url: imageUrl, position: 1 }).eq('id', imageId).eq('product_id', productId);
+          const { error } = await supabase.from('product_images').update({ url: toStorageReference(imageUrl), position: 1 }).eq('id', imageId).eq('product_id', productId);
           if (error) {
             showAlert(productFormFeedback, 'danger', `No se pudo actualizar imagen: ${error.message}`);
             return;
@@ -1017,7 +2322,7 @@ import Layout from '../layouts/Layout.astro';
         } else {
           const { error } = await supabase.from('product_images').insert({
             product_id: productId,
-            url: imageUrl,
+            url: toStorageReference(imageUrl),
             alt_text: name,
             position: 1,
           });
@@ -1025,6 +2330,72 @@ import Layout from '../layouts/Layout.astro';
             showAlert(productFormFeedback, 'danger', `No se pudo crear imagen: ${error.message}`);
             return;
           }
+        }
+      }
+
+      const extraImageUrls = extraImageUrlsInput
+        .split(/\r?\n/)
+        .map((line) => toStorageReference(line))
+        .filter(Boolean);
+
+      if (extraImageUrls.length > 0 || selectedGalleryFiles.length > 0) {
+        const { data: existingRows, error: existingError } = await supabase
+          .from('product_images')
+          .select('id,url,position')
+          .eq('product_id', productId)
+          .order('position', { ascending: true });
+
+        if (existingError) {
+          showAlert(productFormFeedback, 'danger', `No se pudo leer imágenes actuales: ${existingError.message}`);
+          return;
+        }
+
+        const existing = Array.isArray(existingRows) ? existingRows : [];
+        let nextPosition = existing.reduce((acc, row) => Math.max(acc, Number(row.position) || 0), 0) + 1;
+        const existingUrls = new Set(existing.map((row) => toStorageReference(row.url)).filter(Boolean));
+
+        for (const rawUrl of extraImageUrls) {
+          if (existingUrls.has(rawUrl)) continue;
+          const { error } = await supabase.from('product_images').insert({
+            product_id: productId,
+            url: toStorageReference(rawUrl),
+            alt_text: name,
+            position: nextPosition,
+          });
+          if (error) {
+            showAlert(productFormFeedback, 'danger', `No se pudo guardar URL extra: ${error.message}`);
+            return;
+          }
+          existingUrls.add(rawUrl);
+          nextPosition += 1;
+        }
+
+        for (const file of selectedGalleryFiles) {
+          let uploadedUrl = '';
+          try {
+            uploadedUrl = await uploadProductImageFileLegacyBroken(file, productId || 'producto');
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : 'No se pudo subir imagen de galería.';
+            showAlert(productFormFeedback, 'danger', reason);
+            return;
+          }
+
+          if (!uploadedUrl || existingUrls.has(uploadedUrl)) {
+            continue;
+          }
+
+          const { error } = await supabase.from('product_images').insert({
+            product_id: productId,
+            url: toStorageReference(uploadedUrl),
+            alt_text: name,
+            position: nextPosition,
+          });
+          if (error) {
+            showAlert(productFormFeedback, 'danger', `No se pudo guardar imagen de galería: ${error.message}`);
+            return;
+          }
+          existingUrls.add(uploadedUrl);
+          nextPosition += 1;
         }
       }
 
@@ -1090,6 +2461,7 @@ import Layout from '../layouts/Layout.astro';
       const orders = readLocalArray(ORDERS_KEY);
       const next = orders.map((order) => (order.id === orderId ? { ...order, status } : order));
       writeLocalArray(ORDERS_KEY, next);
+      adminOrders = adminOrders.map((order) => (order.id === orderId ? { ...order, status } : order));
       renderDashboard();
       renderOrdersTable();
       renderUsersTable();
@@ -1123,8 +2495,7 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function createInvoiceFromOrder(orderId) {
-      const orders = readLocalArray(ORDERS_KEY);
-      const order = orders.find((entry) => entry.id === orderId);
+      const order = adminOrders.find((entry) => entry.id === orderId);
       if (!order) {
         showGlobal('danger', 'No se encontro el pedido para facturar.');
         return;
@@ -1136,8 +2507,8 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function downloadInvoice(invoiceId) {
-      const invoices = readLocalArray(INVOICES_KEY);
-      const orders = readLocalArray(ORDERS_KEY);
+      const invoices = adminInvoices;
+      const orders = adminOrders;
       const invoice = invoices.find((entry) => entry.id === invoiceId);
       if (!invoice) {
         showGlobal('danger', 'Factura no encontrada.');
@@ -1233,6 +2604,7 @@ import Layout from '../layouts/Layout.astro';
 
     async function refreshAll() {
       await ensureCatalogLoaded();
+      await refreshBusinessData();
       renderDashboard();
       renderProductsTable();
       renderCategoriesTable();
@@ -1291,6 +2663,9 @@ import Layout from '../layouts/Layout.astro';
 
       try {
         await refreshAll();
+        maybeAutoMigrateImages().catch((migrationError) => {
+          setImagesStatus('warning', `Migración automática con incidencia: ${migrationError?.message || 'error desconocido'}`);
+        });
       } catch (catalogError) {
         setAuthStatus('Sesion valida, pero no se pudieron cargar datos.');
         showAlert(authFeedback, 'danger', `Error al cargar catalogo: ${catalogError.message || 'desconocido'}`);
@@ -1299,20 +2674,58 @@ import Layout from '../layouts/Layout.astro';
 
       setAuthStatus(`Sesion valida: ${currentUser.email || 'admin'}`);
       if (authGate) authGate.style.display = 'none';
-      if (adminShell) adminShell.style.display = 'grid';
-      setTab('dashboard');
+      if (adminShell) {
+        adminShell.style.display = 'grid';
+        adminShell.querySelectorAll('.panel, .admin-panel').forEach((entry) => entry.classList.add('in-view'));
+      }
+      setTab('products');
     }
 
     tabs.forEach((tabLink) => {
-      tabLink.addEventListener('click', (event) => {
+      tabLink.addEventListener('click', async (event) => {
         event.preventDefault();
         const nextTab = tabLink.getAttribute('data-tab');
         if (!nextTab) return;
         setTab(nextTab);
+
+        if (nextTab === 'products') {
+          forceShowPanel('products');
+          try {
+            setCatalogStatus('warning', 'Cargando productos...');
+            setProductsDebug('warning', 'Preparando tabla de productos...');
+            renderProductsTable();
+            await ensureCatalogLoaded();
+            renderProductsTable();
+            setProductsDebug('ok', `Panel productos listo · ${products.length} producto(s).`);
+          } catch (error) {
+            setProductsDebug('danger', `Error en panel productos: ${error?.message || 'error desconocido'}`);
+            showGlobal('danger', `No se pudieron cargar productos: ${error?.message || 'error desconocido'}`);
+          }
+        }
       });
     });
 
     retryBtn?.addEventListener('click', checkAuthAndInit);
+
+    compactSalesMonth?.addEventListener('change', () => {
+      selectedCompactSalesMonth = compactSalesMonth.value || null;
+      updateCompactSalesSummary(adminOrders);
+    });
+
+    reloadCatalogBtn?.addEventListener('click', async () => {
+      try {
+        setCatalogStatus('warning', 'Actualizando catálogo...');
+        await refreshAll();
+      } catch (error) {
+        showGlobal('danger', `No se pudo recargar el catálogo: ${error?.message || 'error desconocido'}`);
+      }
+    });
+
+    migrateImagesBtn?.addEventListener('click', async () => {
+      const proceed = window.confirm('Se migrarán todas las imágenes existentes a Supabase Storage. ¿Continuar?');
+      if (!proceed) return;
+      await migrateAllImagesToStorage();
+    });
 
     logoutBtn?.addEventListener('click', async () => {
       if (!supabase) return;
@@ -1323,6 +2736,32 @@ import Layout from '../layouts/Layout.astro';
     createProductBtn?.addEventListener('click', () => openProductModal());
     productCancelBtn?.addEventListener('click', () => productModal.close());
     productForm?.addEventListener('submit', saveProduct);
+    productImageFileInput?.addEventListener('change', async () => {
+      const file = productImageFileInput instanceof HTMLInputElement ? productImageFileInput.files?.[0] || null : null;
+      if (!file) {
+        uploadedProductImageDataUrl = null;
+        const urlInput = productForm?.elements?.namedItem('image_url');
+        setProductImagePreview(urlInput instanceof HTMLInputElement ? urlInput.value : '/catalogo/placeholder.svg');
+        return;
+      }
+
+      try {
+        uploadedProductImageDataUrl = await prepareProductImageData(file);
+        setProductImagePreview(uploadedProductImageDataUrl);
+      } catch (error) {
+        uploadedProductImageDataUrl = null;
+        if (productImageFileInput instanceof HTMLInputElement) {
+          productImageFileInput.value = '';
+        }
+        const reason = error instanceof Error ? error.message : 'No se pudo leer la imagen seleccionada.';
+        showAlert(productFormFeedback, 'danger', reason);
+      }
+    });
+    productForm?.elements?.namedItem('image_url')?.addEventListener('input', (event) => {
+      if (uploadedProductImageDataUrl) return;
+      const target = event.target;
+      setProductImagePreview(target && target.value ? target.value : '/catalogo/placeholder.svg');
+    });
     productForm?.elements?.namedItem('name')?.addEventListener('input', () => {
       const slugInput = productForm.elements.namedItem('slug');
       if (!slugInput.value.trim()) {
@@ -1340,7 +2779,55 @@ import Layout from '../layouts/Layout.astro';
       }
     });
 
-    refreshInvoicesBtn?.addEventListener('click', renderInvoicesTable);
+    refreshInvoicesBtn?.addEventListener('click', async () => {
+      await refreshBusinessData();
+      renderInvoicesTable();
+    });
+
+    productImagesAddBtn?.addEventListener('click', async () => {
+      if (!currentImagesProductId) return;
+
+      const imageUrl = String(productImagesNewUrl?.value || '').trim();
+      const imageFile = productImagesNewFile instanceof HTMLInputElement ? productImagesNewFile.files?.[0] || null : null;
+      const altText = String(productImagesNewAlt?.value || '').trim();
+      if (!imageUrl && !imageFile) {
+        showAlert(productImagesFeedback, 'danger', 'Ingresa una URL o sube un archivo de imagen.');
+        return;
+      }
+
+      await addProductImage(currentImagesProductId, imageUrl, altText, imageFile);
+      if (productImagesNewUrl instanceof HTMLInputElement) {
+        productImagesNewUrl.value = '';
+      }
+      if (productImagesNewFile instanceof HTMLInputElement) {
+        productImagesNewFile.value = '';
+      }
+      if (productImagesNewAlt instanceof HTMLInputElement) {
+        productImagesNewAlt.value = '';
+      }
+    });
+
+    productImagesList?.addEventListener('click', async (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const action = button.getAttribute('data-action');
+      const id = button.getAttribute('data-id');
+      if (!action || !id) return;
+
+      if (action === 'save-product-image') {
+        await saveProductImage(id);
+      }
+
+      if (action === 'set-primary-product-image') {
+        await setPrimaryProductImage(currentImagesProductId, id);
+      }
+
+      if (action === 'delete-product-image') {
+        const shouldDelete = window.confirm('¿Seguro que quieres borrar esta imagen?');
+        if (!shouldDelete) return;
+        await deleteProductImage(id);
+      }
+    });
 
     productsTableBody?.addEventListener('click', async (event) => {
       const button = event.target.closest('button[data-action]');
@@ -1351,6 +2838,15 @@ import Layout from '../layouts/Layout.astro';
 
       if (action === 'edit-product') {
         openProductModal(id);
+      }
+
+      if (action === 'manage-product-images') {
+        openProductImagesModal(id);
+      }
+
+      if (action === 'toggle-product-visibility') {
+        const nextActive = button.getAttribute('data-next-active') === '1';
+        await toggleProductVisibility(id, nextActive);
       }
 
       if (action === 'delete-product') {

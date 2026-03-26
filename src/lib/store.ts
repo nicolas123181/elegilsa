@@ -1,10 +1,24 @@
 import type { AstroCookies } from 'astro';
 import { supabase } from './supabase';
+import { normalizeProductImages, resolveImageUrl } from './images';
 import type { Cart, CartItemView, CartView, Category, Product, ProductImage, ProductVariant } from './types';
 
 const CART_COOKIE = 'elegilsa_cart_token';
 const SHOPIFY_PRODUCTS_URL = 'https://elegilsa.com/products.json?limit=250';
 let shopifyImageMapPromise: Promise<Map<string, ProductImage[]>> | null = null;
+let searchProductsPromise: Promise<SearchProduct[]> | null = null;
+
+export type SearchProduct = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  category_slug: string | null;
+  category_name: string | null;
+  price_cents: number;
+  image_url: string;
+  search_blob: string;
+};
 
 function isSupabaseConnectivityError(error: unknown): boolean {
   const message =
@@ -28,6 +42,108 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+function normalizeSearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenizeSearchText(value: string): string[] {
+  return normalizeSearchText(value)
+    .split(' ')
+    .filter((token) => token.length > 1);
+}
+
+function levenshteinDistance(a: string, b: string, maxDistance = 2): number {
+  if (a === b) return 0;
+  const aLen = a.length;
+  const bLen = b.length;
+
+  if (Math.abs(aLen - bLen) > maxDistance) return maxDistance + 1;
+  if (aLen === 0) return bLen;
+  if (bLen === 0) return aLen;
+
+  const prev = new Array<number>(bLen + 1);
+  const curr = new Array<number>(bLen + 1);
+
+  for (let j = 0; j <= bLen; j += 1) prev[j] = j;
+
+  for (let i = 1; i <= aLen; i += 1) {
+    curr[0] = i;
+    let rowMin = curr[0];
+
+    for (let j = 1; j <= bLen; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        prev[j] + 1,
+        curr[j - 1] + 1,
+        prev[j - 1] + cost
+      );
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+
+    if (rowMin > maxDistance) return maxDistance + 1;
+    for (let j = 0; j <= bLen; j += 1) prev[j] = curr[j];
+  }
+
+  return prev[bLen];
+}
+
+function scoreProductSearchMatch(product: Product, query: string): number {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return 0;
+
+  const name = normalizeSearchText(product.name);
+  const description = normalizeSearchText(product.description ?? '');
+  const variantBlob = normalizeSearchText(
+    product.product_variants
+      .map((variant) => [variant.name, variant.size_label, variant.color_name].filter(Boolean).join(' '))
+      .join(' ')
+  );
+  const haystack = [name, description, variantBlob].filter(Boolean).join(' ');
+  const queryTokens = tokenizeSearchText(normalizedQuery);
+  const nameTokens = tokenizeSearchText(name);
+  const hayTokens = tokenizeSearchText(haystack);
+
+  let score = 0;
+
+  if (name === normalizedQuery) score += 250;
+  if (name.startsWith(normalizedQuery)) score += 140;
+  if (name.includes(normalizedQuery)) score += 100;
+  if (haystack.includes(normalizedQuery)) score += 70;
+
+  let matchedTokens = 0;
+  for (const token of queryTokens) {
+    if (nameTokens.some((nameToken) => nameToken.startsWith(token))) {
+      score += 40;
+      matchedTokens += 1;
+      continue;
+    }
+
+    if (hayTokens.includes(token)) {
+      score += 20;
+      matchedTokens += 1;
+      continue;
+    }
+
+    const closeMatch = nameTokens.find((nameToken) => levenshteinDistance(nameToken, token, 1) <= 1);
+    if (closeMatch) {
+      score += 12;
+      matchedTokens += 1;
+    }
+  }
+
+  if (queryTokens.length > 0 && matchedTokens === queryTokens.length) {
+    score += 35;
+  }
+
+  return score;
+}
+
 export function persistCartToken(cookies: AstroCookies, token: string) {
   cookies.set(CART_COOKIE, token, {
     path: '/',
@@ -39,7 +155,7 @@ export function persistCartToken(cookies: AstroCookies, token: string) {
 }
 
 function sortImages(images: ProductImage[] | null | undefined): ProductImage[] {
-  return [...(images ?? [])].sort((a, b) => a.position - b.position);
+  return normalizeProductImages(images);
 }
 
 function sortVariants(variants: ProductVariant[] | null | undefined): ProductVariant[] {
@@ -113,6 +229,10 @@ async function withShopifyImageFallback(products: Product[]): Promise<Product[]>
   try {
     const imageMap = await getShopifyImageMap();
     return products.map((product) => {
+      if (Array.isArray(product.product_images) && product.product_images.length > 0) {
+        return product;
+      }
+
       const fallbackImages = imageMap.get(product.slug) ?? [];
       if (fallbackImages.length === 0) return product;
 
@@ -145,6 +265,66 @@ export async function getFeaturedProducts(limit = 8): Promise<Product[]> {
     if (isSupabaseConnectivityError(error)) return [];
     throw error;
   }
+}
+
+export async function getSearchProducts(): Promise<SearchProduct[]> {
+  if (!searchProductsPromise) {
+    searchProductsPromise = (async () => {
+      const [{ data: categories, error: categoriesError }, { data: productRows, error: productsError }] = await Promise.all([
+        supabase.from('categories').select('id,slug,name'),
+        supabase
+          .from('products')
+          .select(
+            'id,category_id,slug,name,description,price_cents,compare_at_cents,featured,is_active,created_at,product_images(id,url,alt_text,position),product_variants(*)'
+          )
+          .eq('is_active', true)
+          .order('featured', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(250),
+      ]);
+
+      if (categoriesError) throw categoriesError;
+      if (productsError) throw productsError;
+
+      const categoryById = new Map<number, { slug: string; name: string }>();
+      for (const category of categories ?? []) {
+        const id = Number((category as any).id);
+        const slug = typeof (category as any).slug === 'string' ? (category as any).slug : '';
+        const name = typeof (category as any).name === 'string' ? (category as any).name : '';
+        if (!Number.isFinite(id) || !slug) continue;
+        categoryById.set(id, { slug, name });
+      }
+
+      const products = await withShopifyImageFallback((productRows ?? []).map(normalizeProduct));
+
+      return products.map((product) => {
+        const category = categoryById.get(Number(product.category_id));
+        const imageUrl = resolveImageUrl(product.product_images?.[0]?.url);
+        const variantBlob = product.product_variants
+          .map((variant) => [variant.name, variant.size_label, variant.color_name].filter(Boolean).join(' '))
+          .join(' ');
+
+        return {
+          id: product.id,
+          slug: product.slug,
+          name: product.name,
+          description: product.description ?? '',
+          category_slug: category?.slug ?? null,
+          category_name: category?.name ?? null,
+          price_cents: product.price_cents,
+          image_url: imageUrl,
+          search_blob: [product.name, product.description ?? '', category?.name ?? '', variantBlob]
+            .filter(Boolean)
+            .join(' '),
+        } satisfies SearchProduct;
+      });
+    })().catch((error) => {
+      searchProductsPromise = null;
+      throw error;
+    });
+  }
+
+  return searchProductsPromise;
 }
 
 export type ProductListParams = {
@@ -232,12 +412,15 @@ export async function getAllProducts(params: ProductListParams = {}) {
     products = products.filter((p) => p.price_cents <= params.maxPrice!);
   }
 
-  if (params.q && params.q.trim().length > 0) {
-    const q = params.q.trim().toLowerCase();
-    products = products.filter((p) => {
-      const haystack = `${p.name} ${p.description ?? ''}`.toLowerCase();
-      return haystack.includes(q);
-    });
+  const hasQuery = Boolean(params.q && params.q.trim().length > 0);
+  if (hasQuery) {
+    const q = params.q!.trim();
+    const scored = products
+      .map((product) => ({ product, score: scoreProductSearchMatch(product, q) }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score || +new Date(b.product.created_at) - +new Date(a.product.created_at));
+
+    products = scored.map((entry) => entry.product);
   }
 
   if (params.categorySlug && params.categorySlug.trim().length > 0) {
@@ -266,7 +449,9 @@ export async function getAllProducts(params: ProductListParams = {}) {
       break;
     case 'newest':
     default:
-      products.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+      if (!hasQuery) {
+        products.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+      }
       break;
   }
 

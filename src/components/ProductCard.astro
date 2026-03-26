@@ -1,5 +1,6 @@
 ---
 import type { Product } from '../lib/types';
+import { resolveImageUrl } from '../lib/images';
 
 type Props = {
   product: Product;
@@ -7,19 +8,7 @@ type Props = {
 
 const { product } = Astro.props as Props;
 
-function normalizeImageUrl(rawUrl: string | null | undefined): string {
-  if (!rawUrl || rawUrl.trim().length === 0) return '/catalogo/placeholder.svg';
-  const value = rawUrl.trim();
-
-  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:')) {
-    return value;
-  }
-
-  if (value.startsWith('/')) return value;
-  return `/${value}`;
-}
-
-const firstImage = normalizeImageUrl(product.product_images?.[0]?.url);
+const firstImage = resolveImageUrl(product.product_images?.[0]?.url);
 const firstAlt = product.product_images?.[0]?.alt_text ?? product.name;
 const wishlistProductPayload = encodeURIComponent(
   JSON.stringify({
