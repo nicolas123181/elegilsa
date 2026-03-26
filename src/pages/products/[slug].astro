@@ -1,5 +1,6 @@
 ---
 import Layout from '../../layouts/Layout.astro';
+import { resolveImageUrl } from '../../lib/images';
 import { getAllProductSlugs, getProductBySlug } from '../../lib/store';
 import type { ProductVariant } from '../../lib/types';
 
@@ -16,10 +17,32 @@ if (!product) {
 }
 
 const images = product?.product_images ?? [];
+const resolvedImages = images.map((image) => ({
+  ...image,
+  url: resolveImageUrl(image.url),
+}));
 const activeVariants: ProductVariant[] = (product?.product_variants ?? []).filter((variant) => variant.is_active);
 const firstAvailableVariant = activeVariants.find((variant) => variant.stock > 0) ?? activeVariants[0] ?? null;
 const usesVariantStock = activeVariants.length > 0;
 const initialStock = usesVariantStock ? (firstAvailableVariant ? Math.max(0, firstAvailableVariant.stock) : 0) : 99;
+
+function isGenericVariantName(name: string | null | undefined): boolean {
+  const normalized = (name ?? '').trim().toLowerCase();
+  return normalized.length === 0 || normalized === 'default title' || normalized === 'default' || normalized === 'principal';
+}
+
+function getVariantDisplayLabel(variant: ProductVariant): string {
+  const parts: string[] = [];
+  if (!isGenericVariantName(variant.name)) parts.push(variant.name);
+  if (variant.size_label && variant.size_label.trim()) parts.push(variant.size_label.trim());
+  if (variant.color_name && variant.color_name.trim()) parts.push(variant.color_name.trim());
+  return parts.length > 0 ? parts.join(' · ') : 'Talla única';
+}
+
+const hasVariantDetails = activeVariants.some((variant) => getVariantDisplayLabel(variant) !== 'Talla única');
+const showVariantSelector = activeVariants.length > 1 || hasVariantDetails;
+const fallbackVariantLabel = firstAvailableVariant ? getVariantDisplayLabel(firstAvailableVariant) : 'Talla única';
+const fallbackVariantStock = firstAvailableVariant ? Math.max(0, firstAvailableVariant.stock) : 99;
 
 function formatEuros(cents: number): string {
   return new Intl.NumberFormat('es-ES', {
@@ -43,18 +66,18 @@ function formatEuros(cents: number): string {
       <section class="pdp">
         <div>
           <div class="gallery-main">
-            <img
+              <img
               id="product-main-image"
-              src={images[0]?.url ?? '/catalogo/placeholder.svg'}
-              alt={images[0]?.alt_text ?? product.name}
+              src={resolvedImages[0]?.url ?? '/catalogo/placeholder.svg'}
+              alt={resolvedImages[0]?.alt_text ?? product.name}
               loading="eager"
             />
           </div>
 
           {
-            images.length > 1 && (
+            resolvedImages.length > 1 && (
               <div class="gallery-thumbs" id="product-thumbs">
-                {images.map((image) => (
+                {resolvedImages.map((image) => (
                   <button type="button" class="thumb" data-image-url={image.url} data-image-alt={image.alt_text ?? product.name}>
                     <img src={image.url} alt={image.alt_text ?? product.name} loading="lazy" />
                   </button>
@@ -76,7 +99,7 @@ function formatEuros(cents: number): string {
           {product.description && <p>{product.description}</p>}
 
           {
-            activeVariants.length > 0 && (
+            showVariantSelector ? (
               <div style="margin-top: 1rem;">
                 <label for="variant-select"><strong>Variante</strong></label>
                 <select id="variant-select" class="select-field">
@@ -86,14 +109,13 @@ function formatEuros(cents: number): string {
                       data-stock={variant.stock}
                       selected={firstAvailableVariant?.id === variant.id}
                     >
-                      {variant.name}
-                      {variant.size_label ? ` · ${variant.size_label}` : ''}
-                      {variant.color_name ? ` · ${variant.color_name}` : ''}
-                      {` · Stock: ${variant.stock}`}
+                      {getVariantDisplayLabel(variant)}
                     </option>
                   ))}
                 </select>
               </div>
+            ) : (
+              <p style="margin: 0.9rem 0 0; color: var(--muted);"><strong>Talla:</strong> {fallbackVariantLabel}</p>
             )
           }
 
@@ -134,7 +156,10 @@ function formatEuros(cents: number): string {
           productSlug: product.slug,
           productName: product.name,
           productPriceCents: product.price_cents,
-          productImage: images[0]?.url ?? '/catalogo/placeholder.svg',
+          productImage: resolvedImages[0]?.url ?? '/catalogo/placeholder.svg',
+          fallbackVariantId: firstAvailableVariant?.id ?? null,
+          fallbackVariantLabel,
+          fallbackVariantStock,
         }}
       >
         const variantSelect = document.getElementById('variant-select');
@@ -159,7 +184,7 @@ function formatEuros(cents: number): string {
         }
 
         function getCurrentStock() {
-          if (!variantSelect) return 99;
+          if (!variantSelect) return Number(fallbackVariantStock || 99);
           const option = variantSelect.selectedOptions[0];
           const stock = Number(option?.dataset.stock ?? '0');
           return Number.isFinite(stock) ? Math.max(0, stock) : 0;
@@ -177,7 +202,7 @@ function formatEuros(cents: number): string {
 
           if (addToCartBtn) addToCartBtn.disabled = stock === 0;
           if (stock === 0) {
-            showFeedback('danger', variantSelect ? 'Producto agotado para la variante seleccionada.' : 'Producto agotado.');
+            showFeedback('danger', 'Producto agotado para la opción seleccionada.');
           }
         }
 
@@ -255,19 +280,19 @@ function formatEuros(cents: number): string {
           const selectedQty = Math.max(1, Number(qtyInput?.value || '1'));
 
           if (stock <= 0) {
-            showFeedback('danger', 'Producto agotado para esta variante.');
+            showFeedback('danger', 'Producto agotado para la opción seleccionada.');
             return;
           }
 
           if (selectedQty > stock) {
-            showFeedback('danger', `Solo hay ${stock} unidad(es) disponibles.`);
+            showFeedback('danger', 'No hay suficiente disponibilidad para esa cantidad.');
             if (qtyInput) qtyInput.value = String(stock);
             return;
           }
 
           const variantOption = variantSelect?.selectedOptions?.[0] ?? null;
-          const variantId = variantOption?.value ?? null;
-          const variantName = variantOption?.textContent?.trim() ?? null;
+          const variantId = variantOption?.value ?? fallbackVariantId ?? null;
+          const variantName = variantOption?.textContent?.trim() ?? fallbackVariantLabel;
           const itemKey = `${productId}::${variantId ?? 'no-variant'}`;
 
           const cart = readCart();
@@ -276,7 +301,7 @@ function formatEuros(cents: number): string {
           const nextQty = Math.min(currentQty + selectedQty, stock);
 
           if (nextQty <= currentQty) {
-            showFeedback('danger', `No puedes anadir mas de ${stock} unidad(es) para esta variante.`);
+            showFeedback('danger', 'No hay más unidades disponibles para esta opción.');
             return;
           }
 
@@ -298,7 +323,7 @@ function formatEuros(cents: number): string {
             : [...cart, nextItem];
 
           writeCart(nextCart);
-          showFeedback('ok', `Anadido al carrito (${nextQty}/${stock} unidad(es)).`);
+          showFeedback('ok', 'Añadido al carrito.');
         });
 
         wishlistBtn?.addEventListener('click', () => {

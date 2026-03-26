@@ -10,7 +10,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "sync:shopify": "node scripts/sync-shopify-catalog.mjs"
+    "sync:shopify": "node scripts/sync-shopify-catalog.mjs",
+    "migrate:product-images": "node scripts/migrate-product-images-to-storage.mjs"
   },
   "dependencies": {
     "@astrojs/node": "^10.0.3",

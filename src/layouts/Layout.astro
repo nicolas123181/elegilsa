@@ -1,7 +1,9 @@
 ---
 import '../styles/global.css';
-import { getNavigationCategories } from '../lib/store';
+import SearchModal from '../components/SearchModal.astro';
+import { getNavigationCategories, getSearchProducts } from '../lib/store';
 import type { Category } from '../lib/types';
+import type { SearchProduct } from '../lib/store';
 
 type Props = {
 	title?: string;
@@ -14,10 +16,17 @@ const {
 } = Astro.props;
 
 let navCategories: Category[] = [];
+let searchProducts: SearchProduct[] = [];
 try {
 	navCategories = await getNavigationCategories();
 } catch {
 	navCategories = [];
+}
+
+try {
+	searchProducts = await getSearchProducts();
+} catch {
+	searchProducts = [];
 }
 ---
 
@@ -63,7 +72,7 @@ try {
 					<a href="/collections/all?category=liquidacion">LIQUIDACION</a>
 				</nav>
 				<nav class="nav-links nav-actions">
-					<a class="icon-link" href="/collections/all#catalog-search" aria-label="Buscar">
+					<a class="icon-link" href="/collections/all#catalog-search" data-open-smart-search="true" aria-label="Buscar">
 						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
 							<circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"></circle>
 							<path d="M20 20l-3.7-3.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
@@ -93,6 +102,8 @@ try {
 		<main class="container">
 			<slot />
 		</main>
+
+		<SearchModal products={searchProducts} />
 
 		<footer class="footer">
 			<div class="container">
