@@ -154,11 +154,9 @@ try {
             <h2 style="margin: 0;">Productos</h2>
             <p style="margin: 0.2rem 0 0; color: var(--muted);">Crear, editar y eliminar. No se permite borrar productos con ventas.</p>
             <p id="admin-catalog-status" class="admin-catalog-status" style="display: none;"></p>
-            <p id="admin-images-status" class="admin-catalog-status" style="display: none;"></p>
             <p id="admin-products-debug" class="admin-catalog-status" style="display: none;"></p>
           </div>
           <div class="row">
-            <button id="migrate-images-btn" type="button" class="btn secondary">Migrar fotos a Storage</button>
             <button id="reload-catalog-btn" type="button" class="btn secondary">Recargar catálogo</button>
             <button id="create-product-btn" type="button">Nuevo producto</button>
           </div>
@@ -307,7 +305,6 @@ try {
       <h2 id="product-modal-title" style="margin-top: 0;">Nuevo producto</h2>
       <form id="product-form" class="form-grid">
         <input type="hidden" name="id" />
-        <input type="hidden" name="variant_id" />
         <input type="hidden" name="image_id" />
 
         <label>
@@ -330,14 +327,20 @@ try {
           Precio anterior (€)
           <input name="compare_price" type="number" min="0" step="0.01" inputmode="decimal" />
         </label>
-        <label>
-          Stock
-          <input name="stock" type="number" min="0" step="1" required inputmode="numeric" />
-        </label>
         <label style="grid-column: 1 / -1;">
           Descripcion
           <textarea name="description" rows="3" maxlength="1200"></textarea>
         </label>
+        <section id="product-variants-section" class="admin-variants-section" style="grid-column: 1 / -1;">
+          <header class="admin-variants-head">
+            <div>
+              <strong>Variantes</strong>
+              <p id="variants-rules-hint" class="admin-variants-hint">Define color, talla y stock según la categoría.</p>
+            </div>
+            <button id="add-variant-btn" type="button" class="btn secondary">Añadir variante</button>
+          </header>
+          <div id="product-variants-list" class="admin-variants-list"></div>
+        </section>
         <label style="grid-column: 1 / -1;">
           Imagen principal (URL)
           <input name="image_url" type="url" maxlength="500" autocomplete="off" />
@@ -514,7 +517,6 @@ try {
     const INVOICES_KEY = 'elegilsa_invoices_v1';
     const RETURNS_KEY = 'elegilsa_returns_v1';
     const ADMIN_CATALOG_CACHE_KEY = 'elegilsa_admin_catalog_cache_v1';
-    const ADMIN_IMAGE_MIGRATION_FLAG_KEY = 'elegilsa_admin_image_migration_done_v1';
     const SHOPIFY_PRODUCTS_URL = 'https://elegilsa.com/products.json?limit=250';
     const SERVER_FALLBACK_PRODUCTS = (() => {
       try {
@@ -570,10 +572,11 @@ try {
     const productImagePreview = document.getElementById('product-image-preview');
     const createProductBtn = document.getElementById('create-product-btn');
     const reloadCatalogBtn = document.getElementById('reload-catalog-btn');
-    const migrateImagesBtn = document.getElementById('migrate-images-btn');
+    const addVariantBtn = document.getElementById('add-variant-btn');
+    const productVariantsList = document.getElementById('product-variants-list');
+    const variantsRulesHint = document.getElementById('variants-rules-hint');
     const productCancelBtn = document.getElementById('product-cancel-btn');
     const adminCatalogStatus = document.getElementById('admin-catalog-status');
-    const adminImagesStatus = document.getElementById('admin-images-status');
     const adminProductsDebug = document.getElementById('admin-products-debug');
 
     const categoryModal = document.getElementById('category-modal');
@@ -692,16 +695,6 @@ try {
         adminCatalogStatus.classList.add(type);
       }
       adminCatalogStatus.style.display = message ? 'block' : 'none';
-    }
-
-    function setImagesStatus(type, message) {
-      if (!adminImagesStatus) return;
-      adminImagesStatus.textContent = message;
-      adminImagesStatus.classList.remove('ok', 'warning', 'danger');
-      if (type) {
-        adminImagesStatus.classList.add(type);
-      }
-      adminImagesStatus.style.display = message ? 'block' : 'none';
     }
 
     function setProductsDebug(type, message) {
@@ -1004,43 +997,6 @@ try {
 
     async function uploadProductImageFile(file, productId) {
       if (!(file instanceof File) || !String(file.type || '').startsWith('image/')) {
-        throw new Error('Selecciona un archivo de imagen válido.');
-      }
-
-      const maxBytes = PRODUCT_IMAGE_MAX_MB * 1024 * 1024;
-      if (Number(file.size) > maxBytes) {
-        throw new Error(`La imagen supera ${PRODUCT_IMAGE_MAX_MB}MB.`);
-      }
-
-      const safeProductId = String(productId || 'tmp').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const ext = normalizeExt(file);
-      const randomSuffix = Math.random().toString(36).slice(2, 9);
-      const filePath = `${safeProductId}/${Date.now()}-${randomSuffix}.${ext}`;
-
-      const { error: uploadError } = await supabase.storage.from(PRODUCT_IMAGES_BUCKET).upload(filePath, file, {
-        cacheControl: '31536000',
-        upsert: false,
-        contentType: file.type,
-      });
-
-      if (uploadError) {
-        throw new Error(`No se pudo subir a Storage (${PRODUCT_IMAGES_BUCKET}): ${uploadError.message}`);
-      }
-
-        throw new Error('No se pudo obtener URL pública de la imagen.');
-      return `${PRODUCT_IMAGES_BUCKET}/${filePath}`;
-    }
-
-    function isStorageHostedImage(url) {
-      const value = String(url || '').trim();
-      if (!value) return false;
-      if (value.includes(`/storage/v1/object/public/${PRODUCT_IMAGES_BUCKET}/`)) return true;
-      if (value.startsWith(`${PRODUCT_IMAGES_BUCKET}/`)) return true;
-      return false;
-    }
-
-    async function uploadProductImageFileLegacyBroken(file, productId) {
-      if (!(file instanceof File) || !String(file.type || '').startsWith('image/')) {
         throw new Error('Selecciona un archivo de imagen valido.');
       }
 
@@ -1065,117 +1021,6 @@ try {
       }
 
       return `${PRODUCT_IMAGES_BUCKET}/${filePath}`;
-    }
-
-    function isStorageHostedImageLegacy(url) {
-      const value = toStorageReference(url);
-      if (!value) return false;
-      if (value.includes(`/storage/v1/object/public/${PRODUCT_IMAGES_BUCKET}/`)) return true;
-      if (value.startsWith(`${PRODUCT_IMAGES_BUCKET}/`)) return true;
-      return false;
-    }
-
-    async function fetchImageAsFile(url, fallbackName = 'imagen') {
-      const sourceUrl = resolveImageUrl(url);
-      const response = await fetch(sourceUrl, { mode: 'cors' });
-      if (!response.ok) {
-        throw new Error(`No se pudo descargar (${response.status})`);
-      }
-
-      const blob = await response.blob();
-      if (!String(blob.type || '').startsWith('image/')) {
-        throw new Error('El recurso no es una imagen.');
-      }
-
-      const ext = normalizeExt({ name: fallbackName, type: blob.type });
-      const filename = `${fallbackName}.${ext}`;
-      return new File([blob], filename, { type: blob.type || 'image/jpeg' });
-    }
-
-    async function migrateAllImagesToStorage() {
-      setImagesStatus('warning', 'Migrando imágenes a Supabase Storage...');
-
-      const { data: rows, error } = await supabase
-        .from('product_images')
-        .select('id,product_id,url,position')
-        .order('id', { ascending: true });
-
-      if (error) {
-        setImagesStatus('danger', `No se pudo leer product_images: ${error.message}`);
-        return { migrated: 0, skipped: 0, failed: 1 };
-      }
-
-      const images = Array.isArray(rows) ? rows : [];
-      if (images.length === 0) {
-        setImagesStatus('ok', 'No hay imágenes para migrar.');
-        return { migrated: 0, skipped: 0, failed: 0 };
-      }
-
-      const { data: productRows } = await supabase
-        .from('products')
-        .select('id,slug');
-      const slugByProductId = new Map(
-        (Array.isArray(productRows) ? productRows : [])
-          .map((row) => [String(row.id || ''), String(row.slug || '').trim()])
-      );
-
-      let migrated = 0;
-      let skipped = 0;
-      let failed = 0;
-
-      for (const image of images) {
-        const currentUrl = String(image.url || '').trim();
-        if (!currentUrl || currentUrl.startsWith('data:image/')) {
-          skipped += 1;
-          continue;
-        }
-
-        if (isStorageHostedImageLegacy(currentUrl)) {
-          skipped += 1;
-          continue;
-        }
-
-        try {
-          const slug = slugByProductId.get(String(image.product_id || '')) || '';
-          const sourceUrl = currentUrl.startsWith('/catalogo/')
-            ? resolveCatalogPathToFallbackUrl(currentUrl, slug)
-            : currentUrl;
-
-          if (!sourceUrl) {
-            failed += 1;
-            continue;
-          }
-
-          const file = await fetchImageAsFile(sourceUrl, `product-${image.product_id || 'img'}-${image.id}`);
-          const nextUrl = await uploadProductImageFileLegacyBroken(file, String(image.product_id || 'producto'));
-          const { error: updateError } = await supabase.from('product_images').update({ url: nextUrl }).eq('id', image.id);
-          if (updateError) {
-            failed += 1;
-            continue;
-          }
-          migrated += 1;
-        } catch {
-          failed += 1;
-        }
-      }
-
-      await refreshAll();
-
-      if (failed > 0) {
-        setImagesStatus('warning', `Migración completada con incidencias: ${migrated} migradas, ${skipped} ya en Storage/omitidas, ${failed} con error.`);
-      } else {
-        setImagesStatus('ok', `Migración completada: ${migrated} migradas, ${skipped} ya en Storage/omitidas.`);
-      }
-
-      return { migrated, skipped, failed };
-    }
-
-    async function maybeAutoMigrateImages() {
-      if (localStorage.getItem(ADMIN_IMAGE_MIGRATION_FLAG_KEY) === '1') return;
-      const summary = await migrateAllImagesToStorage();
-      if (summary && summary.failed === 0) {
-        localStorage.setItem(ADMIN_IMAGE_MIGRATION_FLAG_KEY, '1');
-      }
     }
 
     function setProductImagePreview(src) {
@@ -1389,6 +1234,268 @@ try {
       return match ? match.name : 'Sin categoria';
     }
 
+    function normalizeTextToken(value) {
+      return String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function getCategoryVariantMode(categoryId) {
+      const category = categories.find((entry) => Number(entry.id) === Number(categoryId));
+      const token = normalizeTextToken(`${category?.slug || ''} ${category?.name || ''}`);
+
+      if (/calzado|zapat|sandali|bota|cuña|cuna/.test(token)) return 'footwear';
+      if (/complement|accesor|bolso|cinturon|bisuter|joya|sombrer|gorr|cartera/.test(token)) return 'accessory';
+      return 'apparel';
+    }
+
+    function getVariantRules(categoryId) {
+      const mode = getCategoryVariantMode(categoryId);
+
+      if (mode === 'footwear') {
+        return {
+          colorRequired: false,
+          colorVisible: true,
+          sizeVisible: true,
+          sizeRequired: true,
+          sizeLabel: 'Talla del calzado',
+          hint: 'Calzado: talla obligatoria y color opcional.',
+        };
+      }
+
+      if (mode === 'accessory') {
+        return {
+          colorRequired: false,
+          colorVisible: true,
+          sizeVisible: false,
+          sizeRequired: false,
+          sizeLabel: 'Talla',
+          hint: 'Complementos: color opcional y sin talla obligatoria.',
+        };
+      }
+
+      return {
+        colorRequired: true,
+        colorVisible: true,
+        sizeVisible: true,
+        sizeRequired: true,
+        sizeLabel: 'Talla',
+        hint: 'Ropa: color y talla obligatorios.',
+      };
+    }
+
+    function parseVariantMeta(raw) {
+      const value = String(raw || '').trim();
+      if (!value) {
+        return { colorHex: '', imageId: '' };
+      }
+
+      let colorHex = '';
+      let imageId = '';
+      const parts = value.split('|').map((part) => part.trim()).filter(Boolean);
+
+      for (const part of parts) {
+        const imageMatch = part.match(/^img:(\d+)$/i);
+        if (imageMatch) {
+          imageId = imageMatch[1];
+          continue;
+        }
+
+        if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(part)) {
+          colorHex = part;
+        }
+      }
+
+      if (!colorHex && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) {
+        colorHex = value;
+      }
+
+      return { colorHex, imageId };
+    }
+
+    function serializeVariantMeta(colorHex, imageId) {
+      const safeHex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(colorHex || '').trim())
+        ? String(colorHex || '').trim()
+        : '';
+      const safeImageId = /^\d+$/.test(String(imageId || '').trim())
+        ? String(imageId || '').trim()
+        : '';
+
+      if (safeHex && safeImageId) return `${safeHex}|img:${safeImageId}`;
+      if (safeHex) return safeHex;
+      if (safeImageId) return `img:${safeImageId}`;
+      return null;
+    }
+
+    function getVariantImageOptions(productId) {
+      const product = products.find((entry) => String(entry.id) === String(productId));
+      const sorted = getSortedImages(product);
+      return sorted.map((image, index) => ({
+        id: String(image.id),
+        label: `${index === 0 ? 'Principal' : `Imagen ${index + 1}`} · ${String(image.alt_text || '').trim() || `#${image.id}`}`,
+      }));
+    }
+
+    function createVariantRow(variant = {}, options = {}) {
+      const rules = options.rules || getVariantRules(productForm?.elements?.namedItem('category_id')?.value);
+      const imageOptions = Array.isArray(options.imageOptions) ? options.imageOptions : [];
+      const meta = parseVariantMeta(variant?.color_hex);
+
+      const row = document.createElement('article');
+      row.className = 'admin-variant-row';
+      row.dataset.variantId = String(variant?.id || '').trim();
+
+      const imageSelectOptions = ['<option value="">Auto por color / principal</option>']
+        .concat(imageOptions.map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.label)}</option>`))
+        .join('');
+
+      row.innerHTML = `
+        <div class="admin-variant-grid">
+          <label>
+            Nombre opcional
+            <input type="text" data-field="name" maxlength="100" value="${escapeHtml(variant?.name || '')}" placeholder="Principal" />
+          </label>
+          <label data-role="color-wrap">
+            <span class="admin-variant-color-label">Color</span>
+            <input type="text" data-field="color_name" maxlength="80" value="${escapeHtml(variant?.color_name || '')}" placeholder="Azul" />
+          </label>
+          <label data-role="size-wrap">
+            <span class="admin-variant-size-label">${escapeHtml(rules.sizeLabel || 'Talla')}</span>
+            <input type="text" data-field="size_label" maxlength="60" value="${escapeHtml(variant?.size_label || '')}" placeholder="M" />
+          </label>
+          <label>
+            Precio variante (€)
+            <input type="number" min="0" step="0.01" inputmode="decimal" data-field="price" value="${variant?.price_cents != null ? escapeHtml(String((Number(variant.price_cents) || 0) / 100)) : ''}" placeholder="Usar precio general" />
+          </label>
+          <label>
+            Stock
+            <input type="number" min="0" step="1" inputmode="numeric" data-field="stock" value="${escapeHtml(String(Math.max(0, Number(variant?.stock) || 0)))}" required />
+          </label>
+          <label>
+            Imagen variante
+            <select data-field="image_id">${imageSelectOptions}</select>
+          </label>
+          <label>
+            Hex (opcional)
+            <input type="text" data-field="color_hex" maxlength="7" value="${escapeHtml(meta.colorHex)}" placeholder="#1f4fff" />
+          </label>
+          <label class="checkbox-line compact">
+            <input type="checkbox" data-field="is_active" ${variant?.is_active === false ? '' : 'checked'} />
+            Activa
+          </label>
+          <div class="admin-variant-row-actions">
+            <button type="button" class="btn secondary" data-action="remove-variant-row">Quitar</button>
+          </div>
+        </div>
+      `;
+
+      const imageSelect = row.querySelector('select[data-field="image_id"]');
+      if (imageSelect instanceof HTMLSelectElement) {
+        imageSelect.value = meta.imageId || '';
+      }
+
+      return row;
+    }
+
+    function applyVariantRulesToRows() {
+      if (!(productVariantsList instanceof HTMLElement)) return;
+
+      const rules = getVariantRules(productForm?.elements?.namedItem('category_id')?.value);
+      if (variantsRulesHint) {
+        variantsRulesHint.textContent = rules.hint;
+      }
+
+      const rows = Array.from(productVariantsList.querySelectorAll('.admin-variant-row'));
+      for (const row of rows) {
+        const colorWrap = row.querySelector('[data-role="color-wrap"]');
+        const colorLabel = row.querySelector('.admin-variant-color-label');
+        const colorInput = row.querySelector('input[data-field="color_name"]');
+        const sizeLabel = row.querySelector('.admin-variant-size-label');
+        const sizeInput = row.querySelector('input[data-field="size_label"]');
+
+        if (colorWrap instanceof HTMLElement) {
+          colorWrap.style.display = rules.colorVisible ? '' : 'none';
+        }
+        if (colorLabel instanceof HTMLElement) {
+          colorLabel.textContent = rules.colorRequired ? 'Color *' : 'Color';
+        }
+        if (colorInput instanceof HTMLInputElement) {
+          colorInput.required = Boolean(rules.colorRequired);
+        }
+
+        if (sizeLabel instanceof HTMLElement) {
+          sizeLabel.textContent = rules.sizeRequired ? `${rules.sizeLabel} *` : rules.sizeLabel;
+        }
+        const sizeWrap = row.querySelector('[data-role="size-wrap"]');
+        if (sizeWrap instanceof HTMLElement) {
+          sizeWrap.style.display = rules.sizeVisible ? '' : 'none';
+        }
+        if (sizeInput instanceof HTMLInputElement) {
+          sizeInput.placeholder = rules.sizeLabel.toLowerCase().includes('calzado') ? '38' : 'M';
+          sizeInput.required = Boolean(rules.sizeRequired);
+          if (!rules.sizeVisible) {
+            sizeInput.value = '';
+          }
+        }
+      }
+    }
+
+    function renderVariantRows(variants = [], productId = '') {
+      if (!(productVariantsList instanceof HTMLElement)) return;
+
+      const rows = Array.isArray(variants) ? variants : [];
+      const rules = getVariantRules(productForm?.elements?.namedItem('category_id')?.value);
+      const imageOptions = getVariantImageOptions(productId);
+
+      productVariantsList.innerHTML = '';
+
+      const initialRows = rows.length > 0
+        ? rows
+        : [{ id: '', name: 'Principal', color_name: '', color_hex: '', size_label: '', price_cents: null, stock: 0, is_active: true, position: 1 }];
+
+      initialRows
+        .slice()
+        .sort((a, b) => (Number(a?.position) || 0) - (Number(b?.position) || 0))
+        .forEach((variant) => {
+          productVariantsList.appendChild(createVariantRow(variant, { rules, imageOptions }));
+        });
+
+      applyVariantRulesToRows();
+    }
+
+    function readVariantRowsFromForm() {
+      if (!(productVariantsList instanceof HTMLElement)) return [];
+
+      const rows = Array.from(productVariantsList.querySelectorAll('.admin-variant-row'));
+      return rows.map((row, index) => {
+        const id = String(row.dataset.variantId || '').trim();
+        const name = String(row.querySelector('input[data-field="name"]')?.value || '').trim();
+        const colorName = String(row.querySelector('input[data-field="color_name"]')?.value || '').trim();
+        const sizeLabel = String(row.querySelector('input[data-field="size_label"]')?.value || '').trim();
+        const priceRaw = String(row.querySelector('input[data-field="price"]')?.value || '').trim();
+        const stock = Math.max(0, Math.round(Number(row.querySelector('input[data-field="stock"]')?.value || 0)));
+        const isActive = Boolean(row.querySelector('input[data-field="is_active"]')?.checked);
+        const imageId = String(row.querySelector('select[data-field="image_id"]')?.value || '').trim();
+        const colorHex = String(row.querySelector('input[data-field="color_hex"]')?.value || '').trim();
+
+        return {
+          id,
+          name: name || 'Principal',
+          color_name: colorName || null,
+          color_hex: serializeVariantMeta(colorHex, imageId),
+          size_label: sizeLabel || null,
+          price_cents: priceRaw ? euroToCents(priceRaw) : null,
+          stock,
+          is_active: isActive,
+          position: index + 1,
+        };
+      });
+    }
+
     function getPrimaryVariant(product) {
       const variants = Array.isArray(product.product_variants) ? product.product_variants : [];
       return variants.find((variant) => variant.is_active) || variants[0] || null;
@@ -1461,7 +1568,7 @@ try {
       let variants = [];
       const variantsResult = await supabase
         .from('product_variants')
-        .select('id,product_id,name,stock,price_cents,is_active,position')
+        .select('id,product_id,name,color_name,color_hex,size_label,stock,price_cents,is_active,position')
         .order('position', { ascending: true });
       if (!variantsResult.error && Array.isArray(variantsResult.data)) {
         variants = variantsResult.data;
@@ -1821,12 +1928,13 @@ try {
         .map((category) => `<option value="${category.id}">${category.name}</option>`)
         .join('')
         : '<option value="">Sin categorias disponibles</option>';
+
+      applyVariantRulesToRows();
     }
 
     function resetProductForm() {
       productForm.reset();
       productForm.elements.namedItem('id').value = '';
-      productForm.elements.namedItem('variant_id').value = '';
       productForm.elements.namedItem('image_id').value = '';
       productForm.elements.namedItem('is_active').checked = true;
       productForm.elements.namedItem('featured').checked = false;
@@ -1845,6 +1953,7 @@ try {
       hideAlert(productFormFeedback);
       productModalTitle.textContent = 'Nuevo producto';
       populateCategorySelect();
+      renderVariantRows([], '');
     }
 
     function openProductModal(productId = null) {
@@ -1853,19 +1962,16 @@ try {
         const product = products.find((entry) => String(entry.id) === String(productId));
         if (!product) return;
 
-        const variant = getPrimaryVariant(product);
         const image = (product.product_images || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0))[0] || null;
 
         productModalTitle.textContent = `Editar: ${product.name}`;
         productForm.elements.namedItem('id').value = String(product.id);
-        productForm.elements.namedItem('variant_id').value = variant?.id || '';
         productForm.elements.namedItem('image_id').value = image?.id || '';
         productForm.elements.namedItem('name').value = product.name || '';
         productForm.elements.namedItem('slug').value = product.slug || '';
         productForm.elements.namedItem('category_id').value = String(product.category_id || '');
         productForm.elements.namedItem('price').value = String((Number(product.price_cents) || 0) / 100);
         productForm.elements.namedItem('compare_price').value = product.compare_at_cents ? String(Number(product.compare_at_cents) / 100) : '';
-        productForm.elements.namedItem('stock').value = String(variant ? Number(variant.stock) || 0 : 0);
         productForm.elements.namedItem('description').value = product.description || '';
         productForm.elements.namedItem('image_url').value = image?.url || '';
         productForm.elements.namedItem('is_active').checked = Boolean(product.is_active);
@@ -1875,6 +1981,9 @@ try {
           extraUrls.value = '';
         }
         setProductImagePreview(image?.url || '/catalogo/placeholder.svg');
+        renderVariantRows(Array.isArray(product.product_variants) ? product.product_variants : [], product.id);
+      } else {
+        renderVariantRows([], '');
       }
 
       productModal.showModal();
@@ -2034,7 +2143,7 @@ try {
       let finalUrl = toStorageReference(imageUrl);
       if (imageFile instanceof File) {
         try {
-          finalUrl = await uploadProductImageFileLegacyBroken(imageFile, productId || 'producto');
+          finalUrl = await uploadProductImageFile(imageFile, productId || 'producto');
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'No se pudo subir imagen.';
           showAlert(productImagesFeedback, 'danger', reason);
@@ -2210,7 +2319,6 @@ try {
       hideAlert(productFormFeedback);
 
       const id = String(productForm.elements.namedItem('id').value || '').trim();
-      const variantId = String(productForm.elements.namedItem('variant_id').value || '').trim();
       const imageId = String(productForm.elements.namedItem('image_id').value || '').trim();
 
       const name = String(productForm.elements.namedItem('name').value || '').trim();
@@ -2221,11 +2329,12 @@ try {
       const priceCents = euroToCents(productForm.elements.namedItem('price').value);
       const comparePriceRaw = String(productForm.elements.namedItem('compare_price').value || '').trim();
       const compareAtCents = comparePriceRaw ? euroToCents(comparePriceRaw) : null;
-      const stock = Math.max(0, Math.round(Number(productForm.elements.namedItem('stock').value || 0)));
       const imageUrlInput = String(productForm.elements.namedItem('image_url').value || '').trim();
       const extraImageUrlsInput = String(productForm.elements.namedItem('extra_image_urls')?.value || '').trim();
       const isActive = Boolean(productForm.elements.namedItem('is_active').checked);
       const featured = Boolean(productForm.elements.namedItem('featured').checked);
+      const variantRows = readVariantRowsFromForm();
+      const variantRules = getVariantRules(categoryId);
 
       let imageUrl = toStorageReference(imageUrlInput);
       const selectedImageFile = productImageFileInput instanceof HTMLInputElement ? productImageFileInput.files?.[0] || null : null;
@@ -2244,6 +2353,27 @@ try {
       if (!name || !slug || !Number.isFinite(categoryId) || categoryId <= 0) {
         showAlert(productFormFeedback, 'danger', 'Completa nombre, slug y categoria.');
         return;
+      }
+
+      if (variantRows.length === 0) {
+        showAlert(productFormFeedback, 'danger', 'Debes añadir al menos una variante.');
+        return;
+      }
+
+      for (const variant of variantRows) {
+        if (variantRules.colorRequired && !String(variant.color_name || '').trim()) {
+          showAlert(productFormFeedback, 'danger', 'Esta categoría requiere color en todas las variantes.');
+          return;
+        }
+
+        if (variantRules.sizeRequired && !String(variant.size_label || '').trim()) {
+          showAlert(productFormFeedback, 'danger', `Esta categoría requiere ${variantRules.sizeLabel.toLowerCase()} en todas las variantes.`);
+          return;
+        }
+      }
+
+      if (variantRows.every((variant) => !variant.is_active)) {
+        variantRows[0].is_active = true;
       }
 
       const productPayload = {
@@ -2276,7 +2406,7 @@ try {
 
       if (selectedImageFile) {
         try {
-          imageUrl = await uploadProductImageFileLegacyBroken(selectedImageFile, productId || 'producto');
+          imageUrl = await uploadProductImageFile(selectedImageFile, productId || 'producto');
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'No se pudo subir la imagen a Storage.';
           showAlert(productFormFeedback, 'danger', reason);
@@ -2284,30 +2414,69 @@ try {
         }
       }
 
-      if (variantId) {
-        const { error } = await supabase
-          .from('product_variants')
-          .update({ stock, name: 'Principal', is_active: true, price_cents: null, position: 1 })
-          .eq('id', variantId)
-          .eq('product_id', productId);
-        if (error) {
-          showAlert(productFormFeedback, 'danger', `No se pudo actualizar stock: ${error.message}`);
-          return;
-        }
-      } else {
-        const { error } = await supabase.from('product_variants').insert({
+      const existingProduct = products.find((entry) => String(entry.id) === String(productId));
+      const existingVariantIds = new Set(
+        (Array.isArray(existingProduct?.product_variants) ? existingProduct.product_variants : [])
+          .map((entry) => String(entry.id || '').trim())
+          .filter(Boolean)
+      );
+      const nextVariantIds = new Set();
+
+      for (const variant of variantRows) {
+        const payload = {
           product_id: productId,
-          name: 'Principal',
-          color_name: null,
-          color_hex: null,
-          size_label: null,
-          price_cents: null,
-          stock,
-          is_active: true,
-          position: 1,
-        });
+          name: variant.name || 'Principal',
+          color_name: variant.color_name,
+          color_hex: variant.color_hex,
+          size_label: variant.size_label,
+          price_cents: variant.price_cents,
+          stock: variant.stock,
+          is_active: Boolean(variant.is_active),
+          position: variant.position,
+        };
+
+        if (variant.id) {
+          const { error } = await supabase
+            .from('product_variants')
+            .update(payload)
+            .eq('id', variant.id)
+            .eq('product_id', productId);
+
+          if (error) {
+            showAlert(productFormFeedback, 'danger', `No se pudo actualizar variante: ${error.message}`);
+            return;
+          }
+
+          nextVariantIds.add(String(variant.id));
+          continue;
+        }
+
+        const { data: insertedVariant, error } = await supabase
+          .from('product_variants')
+          .insert(payload)
+          .select('id')
+          .single();
+
         if (error) {
           showAlert(productFormFeedback, 'danger', `No se pudo crear variante: ${error.message}`);
+          return;
+        }
+
+        if (insertedVariant?.id) {
+          nextVariantIds.add(String(insertedVariant.id));
+        }
+      }
+
+      const retiredVariantIds = [...existingVariantIds].filter((variantEntryId) => !nextVariantIds.has(variantEntryId));
+      if (retiredVariantIds.length > 0) {
+        const { error } = await supabase
+          .from('product_variants')
+          .update({ is_active: false, stock: 0 })
+          .eq('product_id', productId)
+          .in('id', retiredVariantIds);
+
+        if (error) {
+          showAlert(productFormFeedback, 'danger', `No se pudieron desactivar variantes antiguas: ${error.message}`);
           return;
         }
       }
@@ -2373,7 +2542,7 @@ try {
         for (const file of selectedGalleryFiles) {
           let uploadedUrl = '';
           try {
-            uploadedUrl = await uploadProductImageFileLegacyBroken(file, productId || 'producto');
+            uploadedUrl = await uploadProductImageFile(file, productId || 'producto');
           } catch (error) {
             const reason = error instanceof Error ? error.message : 'No se pudo subir imagen de galería.';
             showAlert(productFormFeedback, 'danger', reason);
@@ -2663,9 +2832,6 @@ try {
 
       try {
         await refreshAll();
-        maybeAutoMigrateImages().catch((migrationError) => {
-          setImagesStatus('warning', `Migración automática con incidencia: ${migrationError?.message || 'error desconocido'}`);
-        });
       } catch (catalogError) {
         setAuthStatus('Sesion valida, pero no se pudieron cargar datos.');
         showAlert(authFeedback, 'danger', `Error al cargar catalogo: ${catalogError.message || 'desconocido'}`);
@@ -2721,10 +2887,28 @@ try {
       }
     });
 
-    migrateImagesBtn?.addEventListener('click', async () => {
-      const proceed = window.confirm('Se migrarán todas las imágenes existentes a Supabase Storage. ¿Continuar?');
-      if (!proceed) return;
-      await migrateAllImagesToStorage();
+    addVariantBtn?.addEventListener('click', () => {
+      if (!(productVariantsList instanceof HTMLElement)) return;
+      const productId = String(productForm?.elements?.namedItem('id')?.value || '').trim();
+      const imageOptions = getVariantImageOptions(productId);
+      const rules = getVariantRules(productForm?.elements?.namedItem('category_id')?.value);
+      productVariantsList.appendChild(createVariantRow({}, { rules, imageOptions }));
+      applyVariantRulesToRows();
+    });
+
+    productVariantsList?.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action="remove-variant-row"]');
+      if (!button) return;
+
+      const row = button.closest('.admin-variant-row');
+      if (!(row instanceof HTMLElement) || !(productVariantsList instanceof HTMLElement)) return;
+
+      if (productVariantsList.querySelectorAll('.admin-variant-row').length <= 1) {
+        showAlert(productFormFeedback, 'danger', 'Debe quedar al menos una variante.');
+        return;
+      }
+
+      row.remove();
     });
 
     logoutBtn?.addEventListener('click', async () => {
@@ -2767,6 +2951,9 @@ try {
       if (!slugInput.value.trim()) {
         slugInput.value = toSlug(productForm.elements.namedItem('name').value);
       }
+    });
+    productForm?.elements?.namedItem('category_id')?.addEventListener('change', () => {
+      applyVariantRulesToRows();
     });
 
     createCategoryBtn?.addEventListener('click', () => openCategoryModal());

@@ -39,10 +39,74 @@ function getVariantDisplayLabel(variant: ProductVariant): string {
   return parts.length > 0 ? parts.join(' · ') : 'Talla única';
 }
 
+function normalizeOptionValue(value: string | null | undefined): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function uniqueOptionValues(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) continue;
+    const key = normalizeOptionValue(trimmed);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+
+  return result;
+}
+
+function getSizeOptionLabel(variants: ProductVariant[]): string {
+  const sizes = variants
+    .map((variant) => String(variant.size_label || '').trim())
+    .filter((value) => value.length > 0);
+
+  if (sizes.length === 0) return 'Talla';
+  const numericLike = sizes.every((value) => /^\d{2}(?:\.5)?$/.test(value));
+  return numericLike ? 'Talla del calzado' : 'Talla';
+}
+
+function parseVariantImageIdFromMeta(raw: string | null | undefined): number | null {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  const match = value.match(/(?:^|\|)img:(\d+)(?:\||$)/i);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 const hasVariantDetails = activeVariants.some((variant) => getVariantDisplayLabel(variant) !== 'Talla única');
-const showVariantSelector = activeVariants.length > 1 || hasVariantDetails;
+const hasColorOptions = activeVariants.some((variant) => String(variant.color_name || '').trim().length > 0);
+const hasSizeOptions = activeVariants.some((variant) => String(variant.size_label || '').trim().length > 0);
+const usesStructuredOptions = hasColorOptions || hasSizeOptions;
+const colorOptions = uniqueOptionValues(activeVariants.map((variant) => variant.color_name));
+const sizeOptions = uniqueOptionValues(activeVariants.map((variant) => variant.size_label));
+const sizeOptionLabel = getSizeOptionLabel(activeVariants);
+const showVariantSelector = !usesStructuredOptions && (activeVariants.length > 1 || hasVariantDetails);
 const fallbackVariantLabel = firstAvailableVariant ? getVariantDisplayLabel(firstAvailableVariant) : 'Talla única';
 const fallbackVariantStock = firstAvailableVariant ? Math.max(0, firstAvailableVariant.stock) : 99;
+const variantClientPayload = activeVariants.map((variant) => ({
+  id: variant.id,
+  name: variant.name,
+  color_name: variant.color_name,
+  color_hex: variant.color_hex,
+  size_label: variant.size_label,
+  price_cents: variant.price_cents,
+  stock: variant.stock,
+  variant_image_id: parseVariantImageIdFromMeta(variant.color_hex),
+}));
+const imageClientPayload = resolvedImages.map((image) => ({
+  id: Number(image.id) || null,
+  url: image.url,
+  alt_text: image.alt_text ?? product?.name ?? '',
+}));
 
 function formatEuros(cents: number): string {
   return new Intl.NumberFormat('es-ES', {
@@ -90,7 +154,7 @@ function formatEuros(cents: number): string {
         <div class="panel">
           <h1 style="margin-top: 0;">{product.name}</h1>
           <p class="price" style="font-size: 1.2rem; margin-top: 0.1rem;">
-            <span>{formatEuros(product.price_cents)}</span>
+            <span id="product-price-current">{formatEuros(product.price_cents)}</span>
             {typeof product.compare_at_cents === 'number' && product.compare_at_cents > product.price_cents && (
               <span class="compare">{formatEuros(product.compare_at_cents)}</span>
             )}
@@ -99,7 +163,40 @@ function formatEuros(cents: number): string {
           {product.description && <p>{product.description}</p>}
 
           {
-            showVariantSelector ? (
+            usesStructuredOptions ? (
+              <div class="form-grid" style="margin-top: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem;">
+                {hasColorOptions && (
+                  <label>
+                    <strong>Color</strong>
+                    <select id="variant-color-select" class="select-field">
+                      {colorOptions.map((color) => (
+                        <option
+                          value={color}
+                          selected={normalizeOptionValue(firstAvailableVariant?.color_name) === normalizeOptionValue(color)}
+                        >
+                          {color}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {hasSizeOptions && (
+                  <label>
+                    <strong>{sizeOptionLabel}</strong>
+                    <select id="variant-size-select" class="select-field">
+                      {sizeOptions.map((size) => (
+                        <option
+                          value={size}
+                          selected={normalizeOptionValue(firstAvailableVariant?.size_label) === normalizeOptionValue(size)}
+                        >
+                          {size}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            ) : showVariantSelector ? (
               <div style="margin-top: 1rem;">
                 <label for="variant-select"><strong>Variante</strong></label>
                 <select id="variant-select" class="select-field">
@@ -160,20 +257,181 @@ function formatEuros(cents: number): string {
           fallbackVariantId: firstAvailableVariant?.id ?? null,
           fallbackVariantLabel,
           fallbackVariantStock,
+          productVariantsData: variantClientPayload,
+          productImagesData: imageClientPayload,
+          hasStructuredVariantOptions: usesStructuredOptions,
         }}
       >
         const variantSelect = document.getElementById('variant-select');
+        const colorSelect = document.getElementById('variant-color-select');
+        const sizeSelect = document.getElementById('variant-size-select');
         const qtyInput = document.getElementById('qty-input');
         const qtyDec = document.getElementById('qty-dec');
         const qtyInc = document.getElementById('qty-inc');
         const addToCartBtn = document.getElementById('add-to-cart-btn');
         const wishlistBtn = document.getElementById('wishlist-btn');
         const feedbackEl = document.getElementById('product-feedback');
+        const priceCurrentEl = document.getElementById('product-price-current');
         const mainImage = document.getElementById('product-main-image');
         const thumbs = Array.from(document.querySelectorAll('#product-thumbs .thumb'));
 
         const CART_KEY = 'elegilsa_cart_v1';
         const WISHLIST_KEY = 'elegilsa_wishlist_v2';
+        const variants = Array.isArray(productVariantsData) ? productVariantsData : [];
+        const productImages = Array.isArray(productImagesData) ? productImagesData : [];
+        const usesStructuredVariantPickers = Boolean(hasStructuredVariantOptions);
+
+        function normalizeToken(value) {
+          return String(value || '')
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+        }
+
+        function isGenericVariantLabel(name) {
+          const normalized = normalizeToken(name);
+          return !normalized || normalized === 'principal' || normalized === 'default title' || normalized === 'default';
+        }
+
+        function getVariantLabel(variant) {
+          if (!variant || typeof variant !== 'object') return fallbackVariantLabel;
+          const parts = [];
+          if (!isGenericVariantLabel(variant.name)) parts.push(String(variant.name || '').trim());
+          if (String(variant.size_label || '').trim()) parts.push(String(variant.size_label).trim());
+          if (String(variant.color_name || '').trim()) parts.push(String(variant.color_name).trim());
+          return parts.length > 0 ? parts.join(' · ') : fallbackVariantLabel;
+        }
+
+        function formatEurosClient(cents) {
+          return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((Number(cents) || 0) / 100);
+        }
+
+        function parseImageIdFromMeta(rawValue) {
+          const value = String(rawValue || '').trim();
+          const match = value.match(/(?:^|\|)img:(\d+)(?:\||$)/i);
+          if (!match) return null;
+          const parsed = Number(match[1]);
+          return Number.isFinite(parsed) ? parsed : null;
+        }
+
+        function setActiveThumbByUrl(url) {
+          thumbs.forEach((thumb) => {
+            const thumbUrl = String(thumb.getAttribute('data-image-url') || '');
+            thumb.classList.toggle('active', thumbUrl === String(url || ''));
+          });
+        }
+
+        function applyMainImage(url, alt) {
+          if (!(mainImage instanceof HTMLImageElement)) return;
+          const nextUrl = String(url || '').trim() || '/catalogo/placeholder.svg';
+          const nextAlt = String(alt || '').trim() || productName;
+          mainImage.setAttribute('src', nextUrl);
+          mainImage.setAttribute('alt', nextAlt);
+          setActiveThumbByUrl(nextUrl);
+        }
+
+        function findImageForVariant(variant) {
+          if (!variant || productImages.length === 0) return null;
+
+          const directImageId = Number(variant.variant_image_id);
+          if (Number.isFinite(directImageId) && directImageId > 0) {
+            const direct = productImages.find((image) => Number(image?.id) === directImageId);
+            if (direct) return direct;
+          }
+
+          const imageIdFromMeta = parseImageIdFromMeta(variant.color_hex);
+          if (imageIdFromMeta) {
+            const mapped = productImages.find((image) => Number(image?.id) === imageIdFromMeta);
+            if (mapped) return mapped;
+          }
+
+          const colorToken = normalizeToken(variant.color_name);
+          if (!colorToken) return null;
+
+          const byAlt = productImages.find((image) => normalizeToken(image?.alt_text).includes(colorToken));
+          if (byAlt) return byAlt;
+
+          const colorSlug = colorToken.replace(/\s+/g, '-');
+          const byUrl = productImages.find((image) => normalizeToken(image?.url).includes(colorSlug));
+          return byUrl || null;
+        }
+
+        function findVariantBySelection() {
+          if (variants.length === 0) return null;
+
+          if (!usesStructuredVariantPickers && variantSelect) {
+            const selectedId = String(variantSelect.value || '').trim();
+            return variants.find((variant) => String(variant.id) === selectedId)
+              || variants.find((variant) => Number(variant.stock) > 0)
+              || variants[0]
+              || null;
+          }
+
+          const selectedColor = normalizeToken(colorSelect?.value || '');
+          const selectedSize = normalizeToken(sizeSelect?.value || '');
+
+          const matches = variants.filter((variant) => {
+            const colorMatch = !selectedColor || normalizeToken(variant.color_name) === selectedColor;
+            const sizeMatch = !selectedSize || normalizeToken(variant.size_label) === selectedSize;
+            return colorMatch && sizeMatch;
+          });
+
+          if (matches.length > 0) {
+            return matches.find((variant) => Number(variant.stock) > 0) || matches[0];
+          }
+
+          const colorOnlyMatches = selectedColor
+            ? variants.filter((variant) => normalizeToken(variant.color_name) === selectedColor)
+            : [];
+          if (colorOnlyMatches.length > 0) {
+            return colorOnlyMatches.find((variant) => Number(variant.stock) > 0) || colorOnlyMatches[0];
+          }
+
+          const sizeOnlyMatches = selectedSize
+            ? variants.filter((variant) => normalizeToken(variant.size_label) === selectedSize)
+            : [];
+          if (sizeOnlyMatches.length > 0) {
+            return sizeOnlyMatches.find((variant) => Number(variant.stock) > 0) || sizeOnlyMatches[0];
+          }
+
+          return variants.find((variant) => Number(variant.stock) > 0) || variants[0] || null;
+        }
+
+        function syncStructuredSelectors(variant) {
+          if (!variant || !usesStructuredVariantPickers) return;
+
+          if (colorSelect && String(variant.color_name || '').trim()) {
+            const nextColor = String(variant.color_name).trim();
+            const option = Array.from(colorSelect.options).find((entry) => normalizeToken(entry.value) === normalizeToken(nextColor));
+            if (option) colorSelect.value = option.value;
+          }
+
+          if (sizeSelect && String(variant.size_label || '').trim()) {
+            const nextSize = String(variant.size_label).trim();
+            const option = Array.from(sizeSelect.options).find((entry) => normalizeToken(entry.value) === normalizeToken(nextSize));
+            if (option) sizeSelect.value = option.value;
+          }
+        }
+
+        function getCurrentVariant() {
+          return findVariantBySelection();
+        }
+
+        function getCurrentStock() {
+          const variant = getCurrentVariant();
+          if (!variant) return Number(fallbackVariantStock || 99);
+          return Math.max(0, Number(variant.stock) || 0);
+        }
+
+        function getCurrentPriceCents() {
+          const variant = getCurrentVariant();
+          const variantPrice = Number(variant?.price_cents);
+          if (Number.isFinite(variantPrice) && variantPrice > 0) {
+            return Math.round(variantPrice);
+          }
+          return Number(productPriceCents || 0);
+        }
 
         function showFeedback(type, message) {
           if (!feedbackEl) return;
@@ -183,11 +441,25 @@ function formatEuros(cents: number): string {
           feedbackEl.style.display = 'block';
         }
 
-        function getCurrentStock() {
-          if (!variantSelect) return Number(fallbackVariantStock || 99);
-          const option = variantSelect.selectedOptions[0];
-          const stock = Number(option?.dataset.stock ?? '0');
-          return Number.isFinite(stock) ? Math.max(0, stock) : 0;
+        function refreshVariantState(clearFeedback = true) {
+          const variant = getCurrentVariant();
+          if (usesStructuredVariantPickers) {
+            syncStructuredSelectors(variant);
+          }
+
+          const image = findImageForVariant(variant);
+          if (image?.url) {
+            applyMainImage(image.url, image.alt_text || productName);
+          }
+
+          if (priceCurrentEl) {
+            priceCurrentEl.textContent = formatEurosClient(getCurrentPriceCents());
+          }
+
+          clampQty();
+          if (clearFeedback && feedbackEl) {
+            feedbackEl.style.display = 'none';
+          }
         }
 
         function clampQty() {
@@ -258,8 +530,15 @@ function formatEuros(cents: number): string {
         }
 
         variantSelect?.addEventListener('change', () => {
-          clampQty();
-          if (feedbackEl) feedbackEl.style.display = 'none';
+          refreshVariantState(true);
+        });
+
+        colorSelect?.addEventListener('change', () => {
+          refreshVariantState(true);
+        });
+
+        sizeSelect?.addEventListener('change', () => {
+          refreshVariantState(true);
         });
 
         qtyDec?.addEventListener('click', () => {
@@ -276,6 +555,7 @@ function formatEuros(cents: number): string {
         qtyInput?.addEventListener('input', clampQty);
 
         addToCartBtn?.addEventListener('click', () => {
+          const selectedVariant = getCurrentVariant();
           const stock = getCurrentStock();
           const selectedQty = Math.max(1, Number(qtyInput?.value || '1'));
 
@@ -290,9 +570,9 @@ function formatEuros(cents: number): string {
             return;
           }
 
-          const variantOption = variantSelect?.selectedOptions?.[0] ?? null;
-          const variantId = variantOption?.value ?? fallbackVariantId ?? null;
-          const variantName = variantOption?.textContent?.trim() ?? fallbackVariantLabel;
+          const variantId = selectedVariant?.id ?? variantSelect?.selectedOptions?.[0]?.value ?? fallbackVariantId ?? null;
+          const variantName = selectedVariant ? getVariantLabel(selectedVariant) : fallbackVariantLabel;
+          const unitPriceCents = getCurrentPriceCents();
           const itemKey = `${productId}::${variantId ?? 'no-variant'}`;
 
           const cart = readCart();
@@ -313,8 +593,8 @@ function formatEuros(cents: number): string {
             variantId,
             variantName,
             quantity: nextQty,
-            unitPriceCents: productPriceCents,
-            imageUrl: productImage,
+            unitPriceCents,
+            imageUrl: mainImage?.getAttribute('src') || productImage,
             stock,
           };
 
@@ -348,18 +628,14 @@ function formatEuros(cents: number): string {
 
         thumbs.forEach((thumb) => {
           thumb.addEventListener('click', () => {
-            if (!mainImage) return;
             const nextUrl = thumb.getAttribute('data-image-url') || '/catalogo/placeholder.svg';
             const nextAlt = thumb.getAttribute('data-image-alt') || productName;
-            mainImage.setAttribute('src', nextUrl);
-            mainImage.setAttribute('alt', nextAlt);
-            thumbs.forEach((item) => item.classList.remove('active'));
-            thumb.classList.add('active');
+            applyMainImage(nextUrl, nextAlt);
           });
         });
 
         if (thumbs.length > 0) thumbs[0].classList.add('active');
-        clampQty();
+        refreshVariantState(false);
         syncWishlistButton();
       </script>
     </Layout>

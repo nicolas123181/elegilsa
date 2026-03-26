@@ -342,6 +342,73 @@ body.search-open {
   border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
 }
 
+.admin-variants-section {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.9rem;
+  background: color-mix(in srgb, var(--surface) 78%, #fff);
+}
+
+.admin-variants-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.6rem;
+}
+
+.admin-variants-hint {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.admin-variants-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.admin-variant-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem;
+  background: #fff;
+}
+
+.admin-variant-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.admin-variant-grid label {
+  display: grid;
+  gap: 0.28rem;
+  font-size: 0.88rem;
+}
+
+.admin-variant-grid input,
+.admin-variant-grid select {
+  min-height: 40px;
+}
+
+.admin-variant-row-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+@media (max-width: 820px) {
+  .admin-variant-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-variants-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 .search-result img {
   width: 58px;
   height: 58px;
