@@ -133,6 +133,8 @@ import Layout from '../layouts/Layout.astro';
     const CART_KEY = 'elegilsa_cart_v1';
     const PROFILE_PREFIX = 'elegilsa_profile_';
     const ORDERS_KEY = 'elegilsa_orders_v1';
+    const PENDING_ORDER_KEY = 'elegilsa_pending_checkout_v1';
+    const STRIPE_BUTTON_DEFAULT_TEXT = 'Confirmar y Pagar';
 
     const shippingForm = document.getElementById('shipping-form');
     const feedbackEl = document.getElementById('checkout-feedback');
@@ -168,6 +170,12 @@ import Layout from '../layouts/Layout.astro';
       feedbackEl.style.display = 'block';
     }
 
+    function hideFeedback() {
+      feedbackEl.style.display = 'none';
+      feedbackEl.textContent = '';
+      feedbackEl.classList.remove('ok', 'danger');
+    }
+
     function readCart() {
       try {
         const raw = localStorage.getItem(CART_KEY);
@@ -180,6 +188,51 @@ import Layout from '../layouts/Layout.astro';
 
     function writeCart(items) {
       localStorage.setItem(CART_KEY, JSON.stringify(items));
+    }
+
+    function readOrders() {
+      try {
+        const raw = localStorage.getItem(ORDERS_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function writeOrders(orders) {
+      localStorage.setItem(ORDERS_KEY, JSON.stringify(Array.isArray(orders) ? orders : []));
+    }
+
+    function upsertOrder(order) {
+      const orders = readOrders();
+      const existingIndex = orders.findIndex((current) => current?.id === order?.id);
+      if (existingIndex >= 0) {
+        orders[existingIndex] = {
+          ...orders[existingIndex],
+          ...order,
+        };
+      } else {
+        orders.unshift(order);
+      }
+      writeOrders(orders);
+    }
+
+    function readPendingOrder() {
+      try {
+        const raw = localStorage.getItem(PENDING_ORDER_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function writePendingOrder(order) {
+      localStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(order));
+    }
+
+    function clearPendingOrder() {
+      localStorage.removeItem(PENDING_ORDER_KEY);
     }
 
     function normalizeCart(items) {
@@ -253,6 +306,100 @@ import Layout from '../layouts/Layout.astro';
     function getPaymentMethod() {
       const selected = document.querySelector('input[name="payment_method"]:checked');
       return selected?.value || 'stripe';
+    }
+
+    function getShippingMethod() {
+      const selected = document.querySelector('input[name="shipping_method"]:checked');
+      return selected?.value === 'express' ? 'express' : 'standard';
+    }
+
+    function setStripeButtonState(disabled, text = STRIPE_BUTTON_DEFAULT_TEXT) {
+      if (!stripeCheckoutBtn) return;
+      stripeCheckoutBtn.disabled = disabled;
+      stripeCheckoutBtn.textContent = text;
+    }
+
+    function buildShippingData() {
+      return {
+        full_name: String(shippingForm.elements.namedItem('full_name')?.value || '').trim(),
+        phone: String(shippingForm.elements.namedItem('phone')?.value || '').trim(),
+        shipping_address: String(shippingForm.elements.namedItem('shipping_address')?.value || '').trim(),
+        shipping_city: String(shippingForm.elements.namedItem('shipping_city')?.value || '').trim(),
+        shipping_postal_code: String(shippingForm.elements.namedItem('shipping_postal_code')?.value || '').trim(),
+        shipping_country: String(shippingForm.elements.namedItem('shipping_country')?.value || '').trim(),
+        notes: String(shippingForm.elements.namedItem('notes')?.value || '').trim(),
+      };
+    }
+
+    function createOrderDraft({ userId, cart, shippingData, shippingMethod, paymentMethod }) {
+      const subtotal = cart.reduce((acc, item) => acc + (item.unitPriceCents || 0) * item.quantity, 0);
+      const shipping = getShippingCost();
+      return {
+        id: `ELEG-${Date.now()}`,
+        created_at: new Date().toISOString(),
+        user_id: userId,
+        shipping_method: shippingMethod,
+        payment_method: paymentMethod,
+        shipping: shippingData,
+        items: cart,
+        subtotal_cents: subtotal,
+        shipping_cents: shipping,
+        total_cents: subtotal + shipping,
+        status: 'pending',
+      };
+    }
+
+    async function createStripeCheckoutSession(order) {
+      const response = await fetch('/api/stripe/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          order_id: order.id,
+          customer_id: order.user_id,
+          shipping_method: order.shipping_method,
+          shipping_cents: order.shipping_cents,
+          shipping_data: order.shipping,
+          items: order.items,
+        }),
+      });
+
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        const message = payload?.error || 'No se pudo iniciar el pago con Stripe.';
+        throw new Error(message);
+      }
+
+      if (!payload?.url) {
+        throw new Error('Stripe no devolvio URL de checkout.');
+      }
+
+      return payload;
+    }
+
+    async function verifyStripeCheckoutSession(sessionId) {
+      const response = await fetch(`/api/stripe/verify-checkout-session?session_id=${encodeURIComponent(sessionId)}`);
+      let payload = null;
+
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        const message = payload?.error || 'No se pudo verificar el pago en Stripe.';
+        throw new Error(message);
+      }
+
+      return payload;
     }
 
     function validateStep(step) {
@@ -334,6 +481,67 @@ import Layout from '../layouts/Layout.astro';
       }
     }
 
+    async function handleStripeReturn() {
+      const params = new URLSearchParams(window.location.search);
+      const stripeStatus = params.get('stripe');
+      if (!stripeStatus) return;
+
+      setActiveStep(4);
+      renderSummary();
+
+      if (stripeStatus === 'cancel') {
+        clearPendingOrder();
+        showFeedback('danger', 'Pago cancelado en Stripe. Tu carrito sigue guardado para que lo intentes de nuevo.');
+        window.history.replaceState({}, '', '/checkout');
+        return;
+      }
+
+      if (stripeStatus !== 'success') {
+        window.history.replaceState({}, '', '/checkout');
+        return;
+      }
+
+      const sessionId = params.get('session_id');
+      if (!sessionId) {
+        showFeedback('danger', 'No pudimos confirmar el pago porque falta el identificador de sesion de Stripe.');
+        return;
+      }
+
+      try {
+        setStripeButtonState(true, 'Verificando pago...');
+        const verification = await verifyStripeCheckoutSession(sessionId);
+
+        if (!verification?.paid) {
+          throw new Error('Stripe todavia no confirma el pago como completado.');
+        }
+
+        const pendingOrder = readPendingOrder();
+        if (pendingOrder?.id) {
+          upsertOrder({
+            ...pendingOrder,
+            status: 'paid',
+            stripe_session_id: sessionId,
+            stripe_payment_intent_id: verification?.paymentIntentId || null,
+          });
+          showFeedback('ok', `Pago confirmado. Pedido ${pendingOrder.id} completado correctamente.`);
+        } else {
+          showFeedback('ok', 'Pago confirmado en Stripe.');
+        }
+
+        localStorage.removeItem(CART_KEY);
+        clearPendingOrder();
+
+        window.history.replaceState({}, '', '/checkout');
+        setTimeout(() => {
+          window.location.href = '/perfil?tab=pedidos';
+        }, 1400);
+      } catch (error) {
+        showFeedback('danger', error instanceof Error ? error.message : 'No se pudo confirmar el estado del pago.');
+      } finally {
+        setStripeButtonState(false);
+      }
+    }
+
     document.querySelectorAll('[data-next]').forEach((button) => {
       button.addEventListener('click', () => {
         const nextStep = Number(button.getAttribute('data-next'));
@@ -355,7 +563,7 @@ import Layout from '../layouts/Layout.astro';
       input.addEventListener('change', renderSummary);
     });
 
-    stripeCheckoutBtn?.addEventListener('click', () => {
+    stripeCheckoutBtn?.addEventListener('click', async () => {
       if (!validateStep(4)) return;
 
       const userId = getCurrentUserId();
@@ -365,76 +573,58 @@ import Layout from '../layouts/Layout.astro';
         return;
       }
 
-      stripeCheckoutBtn.disabled = true;
-      stripeCheckoutBtn.textContent = 'Procesando...';
+      setStripeButtonState(true, 'Procesando...');
+      hideFeedback();
 
       const cart = normalizeCart(readCart());
-      const subtotal = cart.reduce((acc, item) => acc + (item.unitPriceCents || 0) * item.quantity, 0);
-      const shipping = getShippingCost();
-      const total = subtotal + shipping;
+      const shippingData = buildShippingData();
+      const shippingMethod = getShippingMethod();
+      const paymentMethod = getPaymentMethod();
 
-      const shippingData = {
-        full_name: String(shippingForm.elements.namedItem('full_name')?.value || '').trim(),
-        phone: String(shippingForm.elements.namedItem('phone')?.value || '').trim(),
-        shipping_address: String(shippingForm.elements.namedItem('shipping_address')?.value || '').trim(),
-        shipping_city: String(shippingForm.elements.namedItem('shipping_city')?.value || '').trim(),
-        shipping_postal_code: String(shippingForm.elements.namedItem('shipping_postal_code')?.value || '').trim(),
-        shipping_country: String(shippingForm.elements.namedItem('shipping_country')?.value || '').trim(),
-        notes: String(shippingForm.elements.namedItem('notes')?.value || '').trim(),
-      };
+      const order = createOrderDraft({
+        userId,
+        cart,
+        shippingData,
+        shippingMethod,
+        paymentMethod,
+      });
 
       localStorage.setItem(`${PROFILE_PREFIX}${userId}`, JSON.stringify({
         ...shippingData,
         email: '',
       }));
 
-      let orders = [];
-      try {
-        const raw = localStorage.getItem(ORDERS_KEY);
-        orders = raw ? JSON.parse(raw) : [];
-        if (!Array.isArray(orders)) orders = [];
-      } catch {
-        orders = [];
-      }
-
-      const order = {
-        id: `ELEG-${Date.now()}`,
-        created_at: new Date().toISOString(),
-        user_id: userId,
-        shipping_method: document.querySelector('input[name="shipping_method"]:checked')?.value || 'standard',
-        payment_method: getPaymentMethod(),
-        shipping: shippingData,
-        items: cart,
-        subtotal_cents: subtotal,
-        shipping_cents: shipping,
-        total_cents: total,
-        status: 'pending',
-      };
-
-      orders.unshift(order);
-      localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-      localStorage.removeItem(CART_KEY);
-
-      const paymentMethod = getPaymentMethod();
-
       if (paymentMethod === 'stripe') {
-        showFeedback('ok', `Redirigiendo a la pasarela de pago de Stripe... (Aqui se conectara tu API Key)`);
-        // Aqui iria la integracion real:
-        // const session = await createStripeSession(cart);
-        // window.location.href = session.url;
-        setTimeout(() => {
-          window.location.href = '/perfil?tab=pedidos';
-        }, 2000);
+        try {
+          writePendingOrder(order);
+          showFeedback('ok', 'Conectando con Stripe...');
+          const session = await createStripeCheckoutSession(order);
+          window.location.href = session.url;
+          return;
+        } catch (error) {
+          clearPendingOrder();
+          showFeedback('danger', error instanceof Error ? error.message : 'No se pudo iniciar Stripe Checkout.');
+          setStripeButtonState(false);
+          return;
+        }
       } else {
-        showFeedback('ok', `Pedido ${order.id} confirmado por transferencia. Total ${formatEuros(total)}.`);
+        clearPendingOrder();
+        upsertOrder({
+          ...order,
+          status: 'completed',
+        });
+        localStorage.removeItem(CART_KEY);
+        showFeedback('ok', `Pedido ${order.id} confirmado por transferencia. Total ${formatEuros(order.total_cents)}.`);
         setTimeout(() => {
           window.location.href = '/perfil?tab=pedidos';
         }, 1500);
+        setStripeButtonState(false);
       }
     });
 
     prefillFromProfile();
     renderSummary();
     setActiveStep(1);
+    handleStripeReturn();
   </script>
 </Layout>

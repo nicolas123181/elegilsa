@@ -246,6 +246,7 @@ try {
                 <th>Fecha</th>
                 <th>Cliente</th>
                 <th>Total</th>
+                <th>Envio</th>
                 <th>Estado</th>
                 <th>Devolucion</th>
                 <th>Acciones</th>
@@ -507,6 +508,14 @@ try {
     const PRODUCT_IMAGES_BUCKET = String(import.meta.env.PUBLIC_SUPABASE_PRODUCT_IMAGES_BUCKET || 'product-images').trim() || 'product-images';
     const PRODUCT_IMAGES_BASE_URL = String(import.meta.env.PUBLIC_SUPABASE_PRODUCT_IMAGES_BASE_URL || '').trim();
     const PRODUCT_IMAGE_MAX_MB = Math.max(1, Number(import.meta.env.PUBLIC_PRODUCT_IMAGE_MAX_MB || 8));
+    const INVOICE_SERIES = String(import.meta.env.PUBLIC_INVOICE_SERIES || 'ELG').trim().toUpperCase() || 'ELG';
+    const INVOICE_VAT_RATE = Math.max(0, Number(import.meta.env.PUBLIC_INVOICE_VAT_RATE || 0.21));
+    const COMPANY_LEGAL_NAME = String(import.meta.env.PUBLIC_COMPANY_LEGAL_NAME || 'ELEGILSA').trim() || 'ELEGILSA';
+    const COMPANY_TAX_ID = String(import.meta.env.PUBLIC_COMPANY_TAX_ID || 'PENDIENTE').trim() || 'PENDIENTE';
+    const COMPANY_ADDRESS = String(import.meta.env.PUBLIC_COMPANY_ADDRESS || 'Direccion fiscal pendiente de configurar').trim() || 'Direccion fiscal pendiente de configurar';
+    const COMPANY_CITY = String(import.meta.env.PUBLIC_COMPANY_CITY || 'Espana').trim() || 'Espana';
+    const COMPANY_SUPPORT_EMAIL = String(import.meta.env.PUBLIC_COMPANY_SUPPORT_EMAIL || 'soporte@elegilsa.com').trim() || 'soporte@elegilsa.com';
+    const COMPANY_WEB = String(import.meta.env.PUBLIC_COMPANY_WEB || 'www.elegilsa.com').trim() || 'www.elegilsa.com';
     const ADMIN_EMAIL_PLACEHOLDERS = new Set(['admin@tudominio.com']);
     const ADMIN_EMAILS = String(import.meta.env.PUBLIC_ADMIN_EMAILS || '')
       .split(',')
@@ -637,6 +646,65 @@ try {
     function formatDate(iso) {
       if (!iso) return '—';
       return new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
+    }
+
+    function normalizeOrderStatus(status, paymentMethod, row = null) {
+      const raw = String(status || '').trim().toLowerCase();
+      const method = String(paymentMethod || '').trim().toLowerCase();
+      const hasStripeEvidence = Boolean(row?.stripe_session_id || row?.stripe_payment_intent_id);
+
+      if (raw === 'paid' || raw === 'cancelled' || raw === 'refunded' || raw === 'pending') {
+        if (raw === 'pending' && method === 'stripe' && hasStripeEvidence) return 'paid';
+        return raw;
+      }
+
+      if (raw === 'completed' || raw === 'success' || raw === 'succeeded') {
+        return 'paid';
+      }
+
+      if (!raw && method === 'stripe' && hasStripeEvidence) {
+        return 'paid';
+      }
+
+      return 'pending';
+    }
+
+    function isPriorityShippingOrder(order) {
+      const method = String(order?.shipping_method || '').trim().toLowerCase();
+      return method === 'express' || (Number(order?.shipping_cents) || 0) > 0;
+    }
+
+    function getShippingLabel(order) {
+      const express = isPriorityShippingOrder(order);
+      const shippingCost = Number(order?.shipping_cents) || 0;
+      const priceText = shippingCost > 0 ? formatMoney(shippingCost) : 'Gratis';
+      return {
+        title: express ? 'Express prioritario' : 'Estandar',
+        subtitle: express ? `Llega antes · ${priceText}` : `Entrega regular · ${priceText}`,
+        express,
+      };
+    }
+
+    function sortOrdersByShippingPriority(records) {
+      return [...(Array.isArray(records) ? records : [])].sort((a, b) => {
+        const shippingDelta = Number(isPriorityShippingOrder(b)) - Number(isPriorityShippingOrder(a));
+        if (shippingDelta !== 0) return shippingDelta;
+        return +new Date(b?.created_at || 0) - +new Date(a?.created_at || 0);
+      });
+    }
+
+    function formatPercent(value) {
+      return `${((Number(value) || 0) * 100).toFixed(0)}%`;
+    }
+
+    function toFiscalNumber(invoice) {
+      const createdAt = new Date(invoice?.created_at || Date.now());
+      const year = Number.isFinite(createdAt.getTime()) ? createdAt.getFullYear() : new Date().getFullYear();
+      const compactId = String(invoice?.id || '')
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .toUpperCase();
+      const suffix = (compactId.slice(-6) || `${Date.now()}`.slice(-6)).padStart(6, '0');
+      return `${INVOICE_SERIES}-${year}-${suffix}`;
     }
 
     function toSlug(value) {
@@ -781,6 +849,7 @@ try {
       const remoteItems = itemsByOrderId.get(id);
       const embeddedItems = parseMaybeJson(row?.items, []);
       const shipping = parseMaybeJson(row?.shipping ?? row?.shipping_data, {});
+      const paymentMethod = row?.payment_method || row?.payment_type || 'stripe';
 
       return {
         ...row,
@@ -788,7 +857,7 @@ try {
         created_at: row?.created_at || new Date().toISOString(),
         user_id: row?.user_id || row?.customer_id || row?.profile_id || null,
         shipping_method: row?.shipping_method || row?.shipping_type || 'standard',
-        payment_method: row?.payment_method || row?.payment_type || 'stripe',
+        payment_method: paymentMethod,
         shipping: shipping && typeof shipping === 'object' ? shipping : {},
         items: normalizeOrderItems(remoteItems && remoteItems.length ? remoteItems : embeddedItems),
         subtotal_cents: Math.max(0, Number(row?.subtotal_cents) || 0),
@@ -797,7 +866,7 @@ try {
           0,
           Number(row?.total_cents ?? row?.amount_cents ?? row?.amount_total_cents ?? 0) || 0
         ),
-        status: String(row?.status || 'pending'),
+        status: normalizeOrderStatus(row?.status, paymentMethod, row),
       };
     }
 
@@ -883,7 +952,11 @@ try {
         }
       } catch {}
 
-      adminOrders = mergeRecords(remoteOrders, localOrders).sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+      adminOrders = sortOrdersByShippingPriority(
+        mergeRecords(localOrders, remoteOrders)
+          .map((row) => normalizeOrderRow(row))
+          .filter(Boolean)
+      );
       adminInvoices = buildDerivedInvoices(
         adminOrders,
         mergeRecords(remoteInvoices, localInvoices)
@@ -1801,18 +1874,25 @@ try {
     }
 
     function renderOrdersTable() {
-      const orders = adminOrders;
+      const orders = sortOrdersByShippingPriority(adminOrders);
       const returns = readLocalArray(RETURNS_KEY);
 
       ordersTableBody.innerHTML = orders.length
         ? orders
             .map((order) => {
               const returnInfo = returns.find((entry) => entry.order_id === order.id);
+              const shipping = getShippingLabel(order);
               return `<tr>
                 <td>${order.id}</td>
                 <td>${formatDate(order.created_at)}</td>
                 <td>${order.shipping?.full_name || order.user_id || 'Sin dato'}</td>
                 <td>${formatMoney(order.total_cents)}</td>
+                <td>
+                  <div style="display: grid; gap: 0.1rem;">
+                    <strong style="font-size: 0.86rem; color: ${shipping.express ? '#934f1f' : '#4a6478'};">${shipping.title}</strong>
+                    <small style="color: var(--muted);">${shipping.subtitle}</small>
+                  </div>
+                </td>
                 <td>
                   <select data-action="order-status" data-id="${order.id}" aria-label="Estado del pedido ${order.id}">
                     <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>Pendiente</option>
@@ -1839,7 +1919,7 @@ try {
               </tr>`;
             })
             .join('')
-        : '<tr><td colspan="7">No hay pedidos registrados.</td></tr>';
+        : '<tr><td colspan="8">No hay pedidos registrados.</td></tr>';
     }
 
     function renderUsersTable() {
@@ -2630,7 +2710,9 @@ try {
       const orders = readLocalArray(ORDERS_KEY);
       const next = orders.map((order) => (order.id === orderId ? { ...order, status } : order));
       writeLocalArray(ORDERS_KEY, next);
-      adminOrders = adminOrders.map((order) => (order.id === orderId ? { ...order, status } : order));
+      adminOrders = sortOrdersByShippingPriority(
+        adminOrders.map((order) => (order.id === orderId ? { ...order, status: normalizeOrderStatus(status, order.payment_method, order) } : order))
+      );
       renderDashboard();
       renderOrdersTable();
       renderUsersTable();
@@ -2675,7 +2757,46 @@ try {
       showGlobal('ok', `Factura ${invoice.id} generada para ${order.id}.`);
     }
 
-    function downloadInvoice(invoiceId) {
+    async function imageUrlToDataUrl(url) {
+      const src = String(url || '').trim();
+      if (!src || src.endsWith('.svg')) return null;
+
+      try {
+        const response = await fetch(src, { mode: 'cors' });
+        if (!response.ok) return null;
+
+        const blob = await response.blob();
+        return await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch {
+        return null;
+      }
+    }
+
+    function getOrderItemImageUrl(item) {
+      const productId = String(item?.productId ?? item?.product_id ?? '').trim();
+      let product = productId
+        ? products.find((entry) => String(entry?.id || '').trim() === productId)
+        : null;
+
+      if (!product) {
+        const itemName = String(item?.name || '').trim().toLowerCase();
+        if (itemName) {
+          product = products.find((entry) => String(entry?.name || '').trim().toLowerCase() === itemName);
+        }
+      }
+
+      if (!product) return '';
+      const raw = getPrimaryImageUrl(product);
+      const resolved = resolveImageUrl(raw);
+      return resolved.includes('/catalogo/placeholder.svg') ? '' : resolved;
+    }
+
+    async function downloadInvoice(invoiceId) {
       const invoices = adminInvoices;
       const orders = adminOrders;
       const invoice = invoices.find((entry) => entry.id === invoiceId);
@@ -2685,88 +2806,163 @@ try {
       }
 
       const order = orders.find((entry) => entry.id === invoice.order_id);
-      
+  const invoiceTotalCents = Math.max(0, Number(invoice?.total_cents ?? order?.total_cents) || 0);
+  const shippingCost = Math.max(0, Number(order?.shipping_cents) || 0);
+  const fiscalNumber = toFiscalNumber(invoice);
+  const vatBaseCents = Math.round(invoiceTotalCents / (1 + INVOICE_VAT_RATE));
+  const vatAmountCents = Math.max(0, invoiceTotalCents - vatBaseCents);
+  const customerTaxId = String(order?.shipping?.tax_id || order?.shipping?.nif || order?.shipping?.dni || '').trim() || 'N/D';
+
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF();
-      
-      // Colores corporativos (elegilsa.com)
-      const brandColor = [126, 95, 75]; // #7e5f4b
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 
-      doc.setFontSize(22);
-      doc.setTextColor(brandColor[0], brandColor[1], brandColor[2]);
-      doc.text('ELEGILSA', 14, 20);
-      
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.text('Moda femenina y complementos', 14, 26);
-      doc.text('www.elegilsa.com', 14, 31);
-      
-      doc.setFontSize(14);
-      doc.setTextColor(0);
-      doc.text('FACTURA', 140, 20);
-      
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.text(`Factura Nº: ${invoice.id}`, 140, 26);
-      doc.text(`Fecha: ${formatDate(invoice.created_at)}`, 140, 31);
-      doc.text(`Pedido: ${invoice.order_id}`, 140, 36);
+      const brandColor = [126, 95, 75];
+      const softBrand = [244, 238, 233];
 
-      // Datos Cliente
-      doc.setTextColor(0);
+      doc.setFillColor(brandColor[0], brandColor[1], brandColor[2]);
+      doc.rect(0, 0, 210, 36, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(24);
+      doc.text(COMPANY_LEGAL_NAME, 14, 16);
+      doc.setFontSize(10);
+      doc.text('Moda femenina y complementos', 14, 22);
+      doc.text(COMPANY_WEB, 14, 27);
+
+      doc.setFontSize(18);
+      doc.text('FACTURA', 152, 16);
+      doc.setFontSize(9);
+      doc.text(`Serie/N: ${fiscalNumber}`, 132, 22);
+      doc.text(`Emision: ${formatDate(invoice.created_at)}`, 132, 27);
+      doc.text(`Pedido: ${invoice.order_id}`, 132, 32);
+
+      doc.setFillColor(softBrand[0], softBrand[1], softBrand[2]);
+      doc.roundedRect(14, 42, 88, 48, 2, 2, 'F');
+      doc.roundedRect(108, 42, 88, 48, 2, 2, 'F');
+      doc.setTextColor(50, 50, 50);
+      doc.setFontSize(10);
+      doc.text('Emisor', 18, 49);
       doc.setFontSize(11);
-      doc.text('Datos del Cliente:', 14, 50);
+      doc.text(COMPANY_LEGAL_NAME, 18, 55);
+      doc.setFontSize(9);
+      doc.text(`NIF/CIF: ${COMPANY_TAX_ID}`, 18, 60);
+      doc.text(COMPANY_ADDRESS, 18, 65, { maxWidth: 80 });
+      doc.text(COMPANY_CITY, 18, 71);
+      doc.text(COMPANY_SUPPORT_EMAIL, 18, 76);
+
       doc.setFontSize(10);
-      doc.setTextColor(100);
-      if (order?.shipping) {
-        doc.text(order.shipping.full_name || invoice.customer, 14, 56);
-        doc.text(order.shipping.shipping_address || '', 14, 61);
-        doc.text(`${order.shipping.shipping_postal_code || ''} ${order.shipping.shipping_city || ''}`, 14, 66);
-        doc.text(order.shipping.shipping_country || '', 14, 71);
-      } else {
-        doc.text(invoice.customer, 14, 56);
-      }
+      doc.setTextColor(50, 50, 50);
+      doc.text('Cliente / Receptor', 112, 49);
+      doc.setFontSize(11);
+      doc.text(order?.shipping?.full_name || invoice.customer, 112, 55);
+      doc.setFontSize(9);
+      doc.text(`NIF/DNI: ${customerTaxId}`, 112, 60);
+      doc.text(order?.shipping?.shipping_address || '', 112, 65, { maxWidth: 80 });
+      doc.text(`${order?.shipping?.shipping_postal_code || ''} ${order?.shipping?.shipping_city || ''}`.trim(), 112, 71);
+      doc.text(order?.shipping?.shipping_country || '', 112, 76);
+
+      doc.setFontSize(9);
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Envio: ${getShippingLabel(order).title}`, 14, 97);
+      doc.text(`Pago: ${String(order?.payment_method || 'stripe').toUpperCase()}`, 62, 97);
+      doc.text(`Estado: ${String(order?.status || 'pending').toUpperCase()}`, 104, 97);
+      doc.text(`IVA aplicado: ${formatPercent(INVOICE_VAT_RATE)}`, 152, 97);
 
       const tableData = [];
+      const imageCache = new Map();
       const items = Array.isArray(order?.items) ? order.items : [];
       let subtotal = 0;
-      for (const item of items) {
+
+      for (const [index, item] of items.entries()) {
         const qty = Number(item.quantity) || 0;
         const unit = Number(item.unitPriceCents) || 0;
         const lineTotal = unit * qty;
         subtotal += lineTotal;
+
+        const imageUrl = getOrderItemImageUrl(item);
+        let imageData = null;
+        if (imageUrl) {
+          if (imageCache.has(imageUrl)) {
+            imageData = imageCache.get(imageUrl);
+          } else {
+            imageData = await imageUrlToDataUrl(imageUrl);
+            imageCache.set(imageUrl, imageData);
+          }
+        }
+
         tableData.push([
-          item.name || 'Producto',
+          imageData || '',
+          item.name || `Producto ${index + 1}`,
           qty.toString(),
           formatMoney(unit),
           formatMoney(lineTotal)
         ]);
       }
-      
-      const shippingCost = Number(order?.shipping_cents) || 0;
+
       if (shippingCost > 0) {
-        tableData.push(['Envío', '1', formatMoney(shippingCost), formatMoney(shippingCost)]);
+        tableData.push(['', 'Envio', '1', formatMoney(shippingCost), formatMoney(shippingCost)]);
       }
 
       doc.autoTable({
-        startY: 85,
-        head: [['Producto', 'Cantidad', 'Precio Unit.', 'Total']],
+        startY: 102,
+        head: [['Foto', 'Producto', 'Cantidad', 'Precio Unit.', 'Total']],
         body: tableData,
-        theme: 'striped',
+        theme: 'grid',
         headStyles: { fillColor: brandColor },
-        margin: { left: 14, right: 14 }
+        styles: { fontSize: 9, valign: 'middle', cellPadding: 2.2 },
+        columnStyles: {
+          0: { cellWidth: 18, halign: 'center' },
+          1: { cellWidth: 78 },
+          2: { cellWidth: 22, halign: 'center' },
+          3: { cellWidth: 34, halign: 'right' },
+          4: { cellWidth: 34, halign: 'right' },
+        },
+        didParseCell: (hookData) => {
+          if (hookData.section === 'body' && hookData.column.index === 0) {
+            hookData.cell.styles.minCellHeight = 14;
+          }
+        },
+        didDrawCell: (hookData) => {
+          if (hookData.section !== 'body' || hookData.column.index !== 0) return;
+          const rowImage = hookData.cell.raw;
+          if (!rowImage || typeof rowImage !== 'string') return;
+
+          const size = 12;
+          const x = hookData.cell.x + (hookData.cell.width - size) / 2;
+          const y = hookData.cell.y + (hookData.cell.height - size) / 2;
+
+          try {
+            doc.addImage(rowImage, 'JPEG', x, y, size, size, undefined, 'FAST');
+          } catch {
+            try {
+              doc.addImage(rowImage, 'PNG', x, y, size, size, undefined, 'FAST');
+            } catch {}
+          }
+        },
+        margin: { left: 14, right: 14 },
       });
 
-      const finalY = doc.lastAutoTable.finalY + 10;
+      const finalY = doc.lastAutoTable.finalY + 8;
+      doc.setFillColor(softBrand[0], softBrand[1], softBrand[2]);
+      doc.roundedRect(106, finalY - 2, 90, 36, 2, 2, 'F');
+      doc.setFontSize(10);
+      doc.setTextColor(80, 80, 80);
+      doc.text('Subtotal articulos', 112, finalY + 4);
+      doc.text(formatMoney(subtotal), 192, finalY + 4, { align: 'right' });
+      doc.text('Envio', 112, finalY + 9);
+      doc.text(formatMoney(shippingCost), 192, finalY + 9, { align: 'right' });
+      doc.text('Base imponible', 112, finalY + 14);
+      doc.text(formatMoney(vatBaseCents), 192, finalY + 14, { align: 'right' });
+      doc.text(`IVA (${formatPercent(INVOICE_VAT_RATE)})`, 112, finalY + 19);
+      doc.text(formatMoney(vatAmountCents), 192, finalY + 19, { align: 'right' });
       doc.setFontSize(12);
-      doc.setTextColor(0);
-      doc.text('Total Factura:', 140, finalY);
-      doc.setFontSize(14);
-      doc.text(formatMoney(invoice.total_cents), 170, finalY);
-      
-      // Footer
+      doc.setTextColor(brandColor[0], brandColor[1], brandColor[2]);
+      doc.text('Total factura', 112, finalY + 28);
+      doc.text(formatMoney(invoiceTotalCents), 192, finalY + 28, { align: 'right' });
+
       doc.setFontSize(9);
-      doc.setTextColor(150);
-      doc.text('Gracias por su compra en Elegilsa.', 105, 280, { align: 'center' });
+      doc.setTextColor(120, 120, 120);
+      doc.text('Factura emitida segun Reglamento de facturacion (RD 1619/2012).', 14, 286);
+      doc.text(`Gracias por confiar en Elegilsa. Soporte: ${COMPANY_SUPPORT_EMAIL}`, 105, 291, { align: 'center' });
 
       doc.save(`Factura_Elegilsa_${invoice.id}.pdf`);
     }
