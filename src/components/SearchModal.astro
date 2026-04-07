@@ -37,9 +37,10 @@ const serializedProducts = JSON.stringify(products).replace(/</g, '\\u003c');
   </section>
 </div>
 
-<script id="smart-search-products-json" type="application/json" set:html={serializedProducts}></script>
+<script is:inline id="smart-search-products-json" type="application/json" set:html={serializedProducts}></script>
 
 <script>
+  // @ts-nocheck
   const modal = document.getElementById('smart-search-modal');
   const input = document.getElementById('smart-search-input');
   const resultsEl = document.getElementById('smart-search-results');
@@ -259,7 +260,8 @@ const serializedProducts = JSON.stringify(products).replace(/</g, '\\u003c');
   }
 
   input?.addEventListener('input', (event) => {
-    updateResults(event.target.value || '');
+    const target = event.currentTarget;
+    updateResults(target.value || '');
   });
 
   input?.addEventListener('keydown', (event) => {
@@ -299,7 +301,7 @@ const serializedProducts = JSON.stringify(products).replace(/</g, '\\u003c');
   });
 
   resultsEl?.addEventListener('mousemove', (event) => {
-    const target = event.target.closest('.search-result');
+    const target = event.target instanceof Element ? event.target.closest('.search-result') : null;
     if (!target) return;
     const idx = Number(target.getAttribute('data-result-index') || '-1');
     if (!Number.isFinite(idx) || idx < 0) return;
@@ -308,13 +310,14 @@ const serializedProducts = JSON.stringify(products).replace(/</g, '\\u003c');
   });
 
   modal?.addEventListener('click', (event) => {
-    if (event.target.closest('[data-search-close="true"]')) {
+    const target = event.target instanceof Element ? event.target.closest('[data-search-close="true"]') : null;
+    if (target) {
       closeSearchModal();
     }
   });
 
   document.addEventListener('click', (event) => {
-    const trigger = event.target.closest('[data-open-smart-search="true"]');
+    const trigger = event.target instanceof Element ? event.target.closest('[data-open-smart-search="true"]') : null;
     if (!trigger) return;
     event.preventDefault();
     const querySeed = trigger.getAttribute('data-prefill') || '';
@@ -323,8 +326,14 @@ const serializedProducts = JSON.stringify(products).replace(/</g, '\\u003c');
 
   document.addEventListener('keydown', (event) => {
     if ((event.key === '/' || (event.key.toLowerCase() === 'k' && (event.ctrlKey || event.metaKey))) && !event.defaultPrevented) {
-      const tag = document.activeElement?.tagName?.toLowerCase();
-      const editable = tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable;
+      const activeElement = document.activeElement;
+      const tag = activeElement instanceof HTMLElement ? activeElement.tagName.toLowerCase() : '';
+      const editable =
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        (activeElement instanceof HTMLElement && activeElement.isContentEditable) ||
+        tag === 'input' ||
+        tag === 'textarea';
       if (editable) return;
       event.preventDefault();
       openSearchModal();

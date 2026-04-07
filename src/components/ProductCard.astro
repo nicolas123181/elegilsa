@@ -40,7 +40,6 @@ function formatEuros(cents: number): string {
     type="button"
     class="wishlist-btn card-wishlist-btn"
     data-wishlist-product={wishlistProductPayload}
-    onclick="event.preventDefault(); window.toggleWishlistFromButton(event);"
     style="position: absolute;"
     aria-label="Añadir a wishlist"
   >
@@ -48,7 +47,7 @@ function formatEuros(cents: number): string {
   </button>
   <a href={`/products/${product.slug}`} aria-label={`Ver ${product.name}`}>
     <div class="card-media">
-      <img src={firstImage} alt={firstAlt} loading="lazy" onerror="this.onerror=null;this.src='/catalogo/placeholder.svg';" />
+      <img src={firstImage} alt={firstAlt} loading="lazy" data-fallback-src="/catalogo/placeholder.svg" />
     </div>
     <div class="card-body">
       <h3 class="card-name">{product.name}</h3>

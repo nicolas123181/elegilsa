@@ -6,6 +6,11 @@ import Layout from '../layouts/Layout.astro';
   <section class="panel" style="margin-top: 1rem;">
     <h1 style="margin-top: 0;">Wishlist / Mis Favoritos</h1>
     <p style="color: var(--muted);">Aqui encontraras los productos a los que les has dado me gusta.</p>
+
+    <div id="wishlist-auth-required" style="display: none;">
+      <p>Debes iniciar sesion para ver y gestionar tu wishlist.</p>
+      <a class="btn" href="/perfil?next=/wishlist">Iniciar sesion</a>
+    </div>
     
     <div id="wishlist-empty" style="display: none;">
       <p>Aun no tienes productos en tu wishlist.</p>
@@ -19,10 +24,39 @@ import Layout from '../layouts/Layout.astro';
 
   <script is:inline>
     const WISHLIST_KEY = 'elegilsa_wishlist_v2';
-    const LEGACY_WISHLIST_KEY = 'elegilsa_wishlist_v1';
+    const authRequiredEl = document.getElementById('wishlist-auth-required');
     const emptyEl = document.getElementById('wishlist-empty');
     const contentEl = document.getElementById('wishlist-content');
     const listEl = document.getElementById('wishlist-list');
+
+    function getSupabaseSessionFromStorage() {
+      try {
+        const tokenKey = Object.keys(localStorage).find((key) => key.startsWith('sb-') && key.endsWith('-auth-token'));
+        if (!tokenKey) return null;
+
+        const raw = localStorage.getItem(tokenKey);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+
+        if (parsed?.currentSession?.user?.id) return parsed.currentSession;
+        if (parsed?.user?.id) return parsed;
+        if (Array.isArray(parsed) && parsed[0]?.currentSession?.user?.id) return parsed[0].currentSession;
+        if (Array.isArray(parsed) && parsed[0]?.user?.id) return parsed[0];
+        return null;
+      } catch {
+        return null;
+      }
+    }
+
+    function getCurrentWishlistUserId() {
+      const session = getSupabaseSessionFromStorage();
+      return session?.user?.id ? String(session.user.id) : null;
+    }
+
+    function getWishlistStorageKey() {
+      const userId = getCurrentWishlistUserId();
+      return userId ? `${WISHLIST_KEY}::${userId}` : null;
+    }
 
     function formatEuros(cents) {
       return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format((cents || 0) / 100);
@@ -44,31 +78,22 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function readWishlist() {
-      try {
-        const raw = localStorage.getItem(WISHLIST_KEY);
-        const parsed = raw ? JSON.parse(raw) : [];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map(normalizeWishlistItem).filter((item) => item !== null);
-        }
-      } catch {}
+      const scopedKey = getWishlistStorageKey();
+      if (!scopedKey) return [];
 
       try {
-        const rawLegacy = localStorage.getItem(LEGACY_WISHLIST_KEY);
-        const parsedLegacy = rawLegacy ? JSON.parse(rawLegacy) : [];
-        const migrated = Array.isArray(parsedLegacy)
-          ? parsedLegacy.map(normalizeWishlistItem).filter((item) => item !== null)
-          : [];
-        if (migrated.length > 0) {
-          localStorage.setItem(WISHLIST_KEY, JSON.stringify(migrated));
-        }
-        return migrated;
+        const raw = localStorage.getItem(scopedKey);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.map(normalizeWishlistItem).filter((item) => item !== null) : [];
       } catch {
         return [];
       }
     }
 
     function writeWishlist(items) {
-      localStorage.setItem(WISHLIST_KEY, JSON.stringify(items));
+      const scopedKey = getWishlistStorageKey();
+      if (!scopedKey) return;
+      localStorage.setItem(scopedKey, JSON.stringify(items));
     }
 
     function escapeHtml(value) {
@@ -87,6 +112,14 @@ import Layout from '../layouts/Layout.astro';
     }
 
     function render() {
+      if (!getCurrentWishlistUserId()) {
+        authRequiredEl.style.display = 'block';
+        emptyEl.style.display = 'none';
+        contentEl.style.display = 'none';
+        return;
+      }
+
+      authRequiredEl.style.display = 'none';
       const wishlist = readWishlist();
 
       if (wishlist.length === 0) {

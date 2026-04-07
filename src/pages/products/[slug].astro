@@ -1,13 +1,8 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import { resolveImageUrl } from '../../lib/images';
-import { getAllProductSlugs, getProductBySlug } from '../../lib/store';
+import { getProductBySlug } from '../../lib/store';
 import type { ProductVariant } from '../../lib/types';
-
-export async function getStaticPaths() {
-  const slugs = await getAllProductSlugs();
-  return slugs.map((slug) => ({ params: { slug } }));
-}
 
 const { slug } = Astro.params;
 const product = slug ? await getProductBySlug(slug) : null;
@@ -262,6 +257,7 @@ function formatEuros(cents: number): string {
           hasStructuredVariantOptions: usesStructuredOptions,
         }}
       >
+        // @ts-nocheck
         const variantSelect = document.getElementById('variant-select');
         const colorSelect = document.getElementById('variant-color-select');
         const sizeSelect = document.getElementById('variant-size-select');
@@ -277,7 +273,9 @@ function formatEuros(cents: number): string {
 
         const CART_KEY = 'elegilsa_cart_v1';
         const WISHLIST_KEY = 'elegilsa_wishlist_v2';
+        // @ts-ignore injected by Astro define:vars
         const variants = Array.isArray(productVariantsData) ? productVariantsData : [];
+        // @ts-ignore injected by Astro define:vars
         const productImages = Array.isArray(productImagesData) ? productImagesData : [];
         const usesStructuredVariantPickers = Boolean(hasStructuredVariantOptions);
 
@@ -508,8 +506,11 @@ function formatEuros(cents: number): string {
         }
 
         function readWishlist() {
+          const userId = getCurrentWishlistUserId();
+          if (!userId) return [];
+
           try {
-            const raw = localStorage.getItem(WISHLIST_KEY);
+            const raw = localStorage.getItem(`${WISHLIST_KEY}::${userId}`);
             const parsed = raw ? JSON.parse(raw) : [];
             return Array.isArray(parsed) ? parsed.map(normalizeWishlistItem).filter((item) => item !== null) : [];
           } catch {
@@ -518,7 +519,33 @@ function formatEuros(cents: number): string {
         }
 
         function writeWishlist(items) {
-          localStorage.setItem(WISHLIST_KEY, JSON.stringify(items));
+          const userId = getCurrentWishlistUserId();
+          if (!userId) return;
+          localStorage.setItem(`${WISHLIST_KEY}::${userId}`, JSON.stringify(items));
+        }
+
+        function getSupabaseSessionFromStorage() {
+          try {
+            const tokenKey = Object.keys(localStorage).find((key) => key.startsWith('sb-') && key.endsWith('-auth-token'));
+            if (!tokenKey) return null;
+
+            const raw = localStorage.getItem(tokenKey);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+
+            if (parsed?.currentSession?.user?.id) return parsed.currentSession;
+            if (parsed?.user?.id) return parsed;
+            if (Array.isArray(parsed) && parsed[0]?.currentSession?.user?.id) return parsed[0].currentSession;
+            if (Array.isArray(parsed) && parsed[0]?.user?.id) return parsed[0];
+            return null;
+          } catch {
+            return null;
+          }
+        }
+
+        function getCurrentWishlistUserId() {
+          const session = getSupabaseSessionFromStorage();
+          return session?.user?.id ? String(session.user.id) : null;
         }
 
         function syncWishlistButton() {
@@ -607,6 +634,12 @@ function formatEuros(cents: number): string {
         });
 
         wishlistBtn?.addEventListener('click', () => {
+          const userId = getCurrentWishlistUserId();
+          if (!userId) {
+            window.location.href = `/perfil?next=${encodeURIComponent('/wishlist')}`;
+            return;
+          }
+
           const items = readWishlist();
           const exists = items.some((item) => item.slug === productSlug || item.id === productId);
           const next = exists

@@ -90,7 +90,7 @@ try {
 							<path d="M9 8V6.8a3 3 0 0 1 6 0V8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
 						</svg>
 					</a>
-					<a class="icon-link" href="/wishlist" aria-label="Wishlist">
+					<a class="icon-link" href="/wishlist" aria-label="Wishlist" data-auth-link="wishlist">
 						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
 							<path d="M12 21s-6.7-4.35-9.2-8.2C.86 9.85 2 6.2 5.33 5.16c2.17-.68 4.06.15 5.17 1.5 1.11-1.35 3-2.18 5.17-1.5C19 6.2 20.14 9.85 21.2 12.8 18.7 16.65 12 21 12 21z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
 						</svg>
@@ -122,7 +122,39 @@ try {
 			revealTargets.forEach((el) => el.classList.add('reveal'));
 
 			const WISHLIST_KEY = 'elegilsa_wishlist_v2';
-			const LEGACY_WISHLIST_KEY = 'elegilsa_wishlist_v1';
+
+			function getSupabaseSessionFromStorage() {
+				try {
+					const tokenKey = Object.keys(localStorage).find((key) => key.startsWith('sb-') && key.endsWith('-auth-token'));
+					if (!tokenKey) return null;
+
+					const raw = localStorage.getItem(tokenKey);
+					if (!raw) return null;
+					const parsed = JSON.parse(raw);
+
+					if (parsed?.currentSession?.user?.id) return parsed.currentSession;
+					if (parsed?.user?.id) return parsed;
+					if (Array.isArray(parsed) && parsed[0]?.currentSession?.user?.id) return parsed[0].currentSession;
+					if (Array.isArray(parsed) && parsed[0]?.user?.id) return parsed[0];
+					return null;
+				} catch {
+					return null;
+				}
+			}
+
+			function getCurrentWishlistUserId() {
+				const session = getSupabaseSessionFromStorage();
+				return session?.user?.id ? String(session.user.id) : null;
+			}
+
+			function hasAuthenticatedWishlistAccess() {
+				return Boolean(getCurrentWishlistUserId());
+			}
+
+			function getWishlistStorageKey() {
+				const userId = getCurrentWishlistUserId();
+				return userId ? `${WISHLIST_KEY}::${userId}` : null;
+			}
 
 			const observer = new IntersectionObserver(
 				(entries) => {
@@ -162,32 +194,22 @@ try {
 			}
 
 			function readWishlist() {
+				const scopedKey = getWishlistStorageKey();
+				if (!scopedKey) return [];
+
 				try {
-					const raw = localStorage.getItem(WISHLIST_KEY);
+					const raw = localStorage.getItem(scopedKey);
 					const parsed = raw ? JSON.parse(raw) : [];
-					if (Array.isArray(parsed) && parsed.length > 0) {
-						return parsed.map(normalizeWishlistItem).filter((item) => item !== null);
-					}
-				} catch {}
-
-				try {
-					const rawLegacy = localStorage.getItem(LEGACY_WISHLIST_KEY);
-					const parsedLegacy = rawLegacy ? JSON.parse(rawLegacy) : [];
-					const migrated = Array.isArray(parsedLegacy)
-						? parsedLegacy.map(normalizeWishlistItem).filter((item) => item !== null)
-						: [];
-
-					if (migrated.length > 0) {
-						localStorage.setItem(WISHLIST_KEY, JSON.stringify(migrated));
-					}
-					return migrated;
+					return Array.isArray(parsed) ? parsed.map(normalizeWishlistItem).filter((item) => item !== null) : [];
 				} catch {
 					return [];
 				}
 			}
 
 			function writeWishlist(items) {
-				localStorage.setItem(WISHLIST_KEY, JSON.stringify(items));
+				const scopedKey = getWishlistStorageKey();
+				if (!scopedKey) return;
+				localStorage.setItem(scopedKey, JSON.stringify(items));
 			}
 
 			function paintWishlistIcons(items) {
@@ -205,6 +227,12 @@ try {
 			}
 
 			window.toggleWishlist = function(event, product) {
+				if (!hasAuthenticatedWishlistAccess()) {
+					event?.preventDefault?.();
+					window.location.href = `/perfil?next=${encodeURIComponent('/wishlist')}`;
+					return;
+				}
+
 				const btn = event.currentTarget;
 				const icon = btn.querySelector('svg');
 				const normalized = normalizeWishlistItem(product);
@@ -241,8 +269,37 @@ try {
 			};
 
 			document.addEventListener('DOMContentLoaded', () => {
+				const canAccessWishlist = hasAuthenticatedWishlistAccess();
+				document.querySelectorAll('[data-auth-link="wishlist"]').forEach((link) => {
+					link.setAttribute('href', canAccessWishlist ? '/wishlist' : `/perfil?next=${encodeURIComponent('/wishlist')}`);
+				});
+				document.querySelectorAll('[data-requires-auth="wishlist"]').forEach((link) => {
+					link.setAttribute('href', canAccessWishlist ? '/wishlist' : `/perfil?next=${encodeURIComponent('/wishlist')}`);
+				});
+
 				const wishlist = readWishlist();
 				paintWishlistIcons(wishlist);
+			});
+
+			document.addEventListener(
+				'error',
+				(event) => {
+					const target = event.target;
+					if (!(target instanceof HTMLImageElement)) return;
+					const fallbackSrc = target.getAttribute('data-fallback-src');
+					if (!fallbackSrc || target.src.endsWith(fallbackSrc)) return;
+					target.src = fallbackSrc;
+				},
+				true
+			);
+
+			document.addEventListener('click', (event) => {
+				const target = event.target;
+				if (!(target instanceof Element)) return;
+				const button = target.closest('.card-wishlist-btn');
+				if (!(button instanceof HTMLButtonElement)) return;
+				event.preventDefault();
+				window.toggleWishlistFromButton({ currentTarget: button });
 			});
 		</script>
 	</body>

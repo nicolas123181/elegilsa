@@ -14,7 +14,7 @@ try {
     const sourceProducts = Array.isArray(payload?.products) ? payload.products : [];
 
     serverFallbackProducts = sourceProducts
-      .map((entry, index) => {
+      .map((entry: any, index: number) => {
         const slug = String(entry?.handle || '').trim();
         const name = String(entry?.title || '').trim();
         if (!slug || !name) return null;
@@ -25,7 +25,7 @@ try {
         const stock = Number(firstVariant?.inventory_quantity || 0);
         const images = Array.isArray(entry?.images) ? entry.images : [];
         const mappedImages = images
-          .map((img, imgIndex) => {
+          .map((img: any, imgIndex: number) => {
             const url = String(img?.src || '').trim();
             if (!url) return null;
             return {
@@ -191,11 +191,38 @@ try {
                       <td>{product.is_active ? 'Si' : 'No'}</td>
                       <td>{images.length > 0 ? `${images.length} imagen(es)` : 'Sin imagenes'}</td>
                       <td>
-                        <div class="row">
-                          <button type="button" class="btn secondary" disabled>Editar</button>
-                          <button type="button" class="btn secondary" disabled>Fotos</button>
-                          <button type="button" class="btn secondary" disabled>Ocultar</button>
-                          <button type="button" class="btn secondary" disabled>Eliminar</button>
+                        <div class="admin-category-actions">
+                          <button type="button" class="admin-icon-btn" disabled aria-label="Editar deshabilitado" title="Solo disponible con conexion a Supabase" set:html={`
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <path d="M12 20h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+                            </svg>
+                          `}></button>
+                          <button type="button" class="admin-icon-btn" disabled aria-label="Fotos deshabilitado" title="Solo disponible con conexion a Supabase" set:html={`
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <rect x="3.5" y="5" width="17" height="14" rx="2.5" stroke="currentColor" stroke-width="1.8"></rect>
+                              <circle cx="9" cy="10" r="1.5" fill="currentColor"></circle>
+                              <path d="M6.5 17l4.2-4.2a1.2 1.2 0 0 1 1.7 0l1.6 1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                              <path d="M12.5 17l2.8-3.1a1.2 1.2 0 0 1 1.8 0L19.5 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                          `}></button>
+                          <button type="button" class="admin-icon-btn" disabled aria-label="Ocultar deshabilitado" title="Solo disponible con conexion a Supabase" set:html={`
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                              <path d="M3 3l18 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                              <path d="M10.6 10.7a2 2 0 1 0 2.8 2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                              <path d="M9.9 5.2A10.6 10.6 0 0 1 12 5c5.3 0 8.8 4.2 9.8 6-.5.9-1.6 2.6-3.4 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                              <path d="M6.2 6.8C4.4 8.2 3.3 9.9 2.8 11c1 1.8 4.5 6 9.2 6 1 0 1.9-.2 2.8-.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                          `}></button>
+                          <span class="admin-danger-wrap">
+                            <button type="button" class="admin-icon-btn danger" disabled aria-label="Eliminar deshabilitado" title="Solo disponible con conexion a Supabase" set:html={`
+                              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path d="M4 7h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                                <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.8"></path>
+                                <path d="M7 7l1 12a1 1 0 0 0 1 .9h6a1 1 0 0 0 1-.9L17 7" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+                              </svg>
+                            `}></button>
+                          </span>
                         </div>
                       </td>
                     </tr>
@@ -258,11 +285,21 @@ try {
       </section>
 
       <section id="admin-panel-users" class="panel admin-panel" style="display: none;">
-        <h2 style="margin-top: 0;">Usuarios</h2>
+        <div class="admin-page-head" style="margin-bottom: 0.6rem;">
+          <div>
+            <h2 style="margin: 0;">Usuarios</h2>
+            <p style="margin: 0.2rem 0 0; color: var(--muted);">Busca por nombre o por id visual para localizar usuarios mas rapido.</p>
+          </div>
+          <label style="display: inline-flex; flex-direction: column; gap: 0.2rem; min-width: 240px; color: var(--muted); font-size: 0.92rem;">
+            Buscar usuario
+            <input id="users-filter" type="search" placeholder="Nombre o ID" autocomplete="off" />
+          </label>
+        </div>
         <div class="table-wrap">
           <table class="admin-table" id="users-table">
             <thead>
               <tr>
+                <th>ID</th>
                 <th>Usuario</th>
                 <th>Pedidos</th>
                 <th>Gasto total</th>
@@ -280,7 +317,13 @@ try {
             <h2 style="margin: 0;">Facturas</h2>
             <p style="margin: 0.2rem 0 0; color: var(--muted);">Genera y descarga facturas para tus pedidos.</p>
           </div>
-          <button id="refresh-invoices-btn" type="button" class="btn secondary">Actualizar</button>
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <label style="display: inline-flex; flex-direction: column; gap: 0.2rem; min-width: 240px; color: var(--muted); font-size: 0.92rem;">
+              Buscar por cliente
+              <input id="invoice-customer-filter" type="search" placeholder="Nombre del cliente" autocomplete="off" />
+            </label>
+            <button id="refresh-invoices-btn" type="button" class="btn secondary">Actualizar</button>
+          </div>
         </div>
 
         <div class="table-wrap">
@@ -289,6 +332,7 @@ try {
               <tr>
                 <th>Factura</th>
                 <th>Pedido</th>
+                <th>Cliente</th>
                 <th>Fecha</th>
                 <th>Total</th>
                 <th>Acciones</th>
@@ -491,9 +535,26 @@ try {
     </section>
   </dialog>
 
+  <dialog id="invoice-preview-modal" class="admin-modal" aria-label="Vista previa de factura">
+    <section class="panel admin-modal-panel" style="max-width: 1080px;">
+      <div class="admin-page-head" style="margin-bottom: 0.8rem;">
+        <div>
+          <h2 id="invoice-preview-title" style="margin: 0;">Vista previa de factura</h2>
+          <p id="invoice-preview-subtitle" style="margin: 0.2rem 0 0; color: var(--muted);"></p>
+        </div>
+        <button id="invoice-preview-close-btn" type="button" class="btn ghost">Cerrar</button>
+      </div>
+      <iframe
+        id="invoice-preview-frame"
+        title="Vista previa PDF factura"
+        style="width: 100%; min-height: 72vh; border: 1px solid var(--border); border-radius: 1rem; background: #fff;"
+      ></iframe>
+    </section>
+  </dialog>
+
   <p id="admin-global-feedback" class="alert" style="display: none; margin-top: 1rem;"></p>
 
-  <script id="admin-server-fallback-products" type="application/json" set:html={JSON.stringify(serverFallbackProducts)}></script>
+  <script is:inline id="admin-server-fallback-products" type="application/json" set:html={JSON.stringify(serverFallbackProducts)}></script>
 
   <!-- jsPDF & jsPDF-AutoTable para facturas -->
   <script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -570,7 +631,9 @@ try {
     const categoriesTableBody = document.querySelector('#categories-table tbody');
     const ordersTableBody = document.querySelector('#orders-table tbody');
     const usersTableBody = document.querySelector('#users-table tbody');
+    const usersFilterInput = document.getElementById('users-filter');
     const invoicesTableBody = document.querySelector('#invoices-table tbody');
+    const invoiceCustomerFilterInput = document.getElementById('invoice-customer-filter');
 
     const productModal = document.getElementById('product-modal');
     const productModalTitle = document.getElementById('product-modal-title');
@@ -607,6 +670,11 @@ try {
     const productImagesAddBtn = document.getElementById('product-images-add-btn');
     const productImagesCloseBtn = document.getElementById('product-images-close-btn');
     const productImagesFeedback = document.getElementById('product-images-feedback');
+    const invoicePreviewModal = document.getElementById('invoice-preview-modal');
+    const invoicePreviewTitle = document.getElementById('invoice-preview-title');
+    const invoicePreviewSubtitle = document.getElementById('invoice-preview-subtitle');
+    const invoicePreviewFrame = document.getElementById('invoice-preview-frame');
+    const invoicePreviewCloseBtn = document.getElementById('invoice-preview-close-btn');
 
     const tabs = Array.from(document.querySelectorAll('#admin-tabs [data-tab]'));
     const panels = {
@@ -627,6 +695,10 @@ try {
     let selectedCompactSalesMonth = null;
     let uploadedProductImageDataUrl = null;
     let currentImagesProductId = null;
+    let invoiceCustomerFilter = '';
+    let usersFilter = '';
+    let invoicePreviewUrl = '';
+    const invoiceImageDataCache = new Map();
 
     function setAuthStatus(message) {
       if (authStatus) authStatus.textContent = message;
@@ -737,6 +809,14 @@ try {
       target.style.display = 'none';
     }
 
+    function normalizeSearchText(value) {
+      return String(value || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    }
+
     function showGlobal(type, message) {
       showAlert(globalFeedback, type, message);
     }
@@ -777,6 +857,14 @@ try {
 
     function sleep(ms) {
       return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function waitForNextFrame() {
+      return new Promise((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.setTimeout(resolve, 0);
+        });
+      });
     }
 
     function readCatalogCache() {
@@ -1593,6 +1681,195 @@ try {
         .replace(/'/g, '&#39;');
     }
 
+    function getInvoiceOrder(invoice) {
+      return adminOrders.find((entry) => String(entry?.id || '') === String(invoice?.order_id || '')) || null;
+    }
+
+    function getInvoiceCustomerName(invoice, order = null) {
+      return String(
+        order?.shipping?.full_name ||
+        invoice?.customer ||
+        order?.user_id ||
+        'Cliente'
+      ).trim() || 'Cliente';
+    }
+
+    function getOrderItemImageUrl(item) {
+      const productId = String(item?.productId ?? item?.product_id ?? '').trim();
+      let product = productId
+        ? products.find((entry) => String(entry?.id || '').trim() === productId)
+        : null;
+
+      if (!product) {
+        const itemName = String(item?.name || '').trim().toLowerCase();
+        if (itemName) {
+          product = products.find((entry) => String(entry?.name || '').trim().toLowerCase() === itemName);
+        }
+      }
+
+      if (!product) return '';
+      const raw = getPrimaryImageUrl(product);
+      const resolved = resolveImageUrl(raw);
+      return resolved.includes('/catalogo/placeholder.svg') ? '' : resolved;
+    }
+
+    function loadImageThumbnailDataUrl(url, options = {}) {
+      const src = String(url || '').trim();
+      if (!src || src.endsWith('.svg') || src.includes('/catalogo/placeholder.svg')) {
+        return Promise.resolve(null);
+      }
+
+      if (invoiceImageDataCache.has(src)) {
+        return invoiceImageDataCache.get(src);
+      }
+
+      const maxWidth = Math.max(24, Number(options.maxWidth) || 72);
+      const maxHeight = Math.max(24, Number(options.maxHeight) || 72);
+      const quality = Math.min(0.92, Math.max(0.45, Number(options.quality) || 0.76));
+      const timeoutMs = Math.max(800, Number(options.timeoutMs) || 2500);
+
+      const pending = new Promise((resolve) => {
+        const image = new Image();
+        let settled = false;
+
+        const finish = (result) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          resolve(result);
+        };
+
+        const timer = window.setTimeout(() => finish(null), timeoutMs);
+
+        image.crossOrigin = 'anonymous';
+        image.decoding = 'async';
+        image.onload = () => {
+          try {
+            const width = Math.max(1, Number(image.naturalWidth) || 1);
+            const height = Math.max(1, Number(image.naturalHeight) || 1);
+            const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(width * ratio));
+            canvas.height = Math.max(1, Math.round(height * ratio));
+            const context = canvas.getContext('2d', { alpha: false });
+            if (!context) {
+              finish(null);
+              return;
+            }
+
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            finish(canvas.toDataURL('image/jpeg', quality));
+          } catch {
+            finish(null);
+          }
+        };
+        image.onerror = () => finish(null);
+        image.src = src;
+      });
+
+      invoiceImageDataCache.set(src, pending);
+      return pending;
+    }
+
+    function closeInvoicePreview() {
+      if (invoicePreviewFrame instanceof HTMLIFrameElement) {
+        invoicePreviewFrame.src = 'about:blank';
+      }
+      if (invoicePreviewUrl) {
+        URL.revokeObjectURL(invoicePreviewUrl);
+        invoicePreviewUrl = '';
+      }
+      if (invoicePreviewModal?.open) {
+        invoicePreviewModal.close();
+      }
+    }
+
+    function getAdminIconSvg(icon) {
+      const icons = {
+        edit: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 20h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+          </svg>
+        `,
+        images: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="3.5" y="5" width="17" height="14" rx="2.5" stroke="currentColor" stroke-width="1.8"></rect>
+            <circle cx="9" cy="10" r="1.5" fill="currentColor"></circle>
+            <path d="M6.5 17l4.2-4.2a1.2 1.2 0 0 1 1.7 0l1.6 1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="M12.5 17l2.8-3.1a1.2 1.2 0 0 1 1.8 0L19.5 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        `,
+        hide: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M3 3l18 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+            <path d="M10.6 10.7a2 2 0 1 0 2.8 2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+            <path d="M9.9 5.2A10.6 10.6 0 0 1 12 5c5.3 0 8.8 4.2 9.8 6-.5.9-1.6 2.6-3.4 4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="M6.2 6.8C4.4 8.2 3.3 9.9 2.8 11c1 1.8 4.5 6 9.2 6 1 0 1.9-.2 2.8-.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        `,
+        show: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M2.8 12c1-1.8 4.5-6 9.2-6s8.2 4.2 9.2 6c-1 1.8-4.5 6-9.2 6s-8.2-4.2-9.2-6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+            <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"></circle>
+          </svg>
+        `,
+        delete: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 7h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+            <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.8"></path>
+            <path d="M7 7l1 12a1 1 0 0 0 1 .9h6a1 1 0 0 0 1-.9L17 7" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+          </svg>
+        `,
+        preview: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M2.8 12c1-1.8 4.5-6 9.2-6s8.2 4.2 9.2 6c-1 1.8-4.5 6-9.2 6s-8.2-4.2-9.2-6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+            <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"></circle>
+          </svg>
+        `,
+        download: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 4v10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+            <path d="M8 11.5l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          </svg>
+        `,
+        save: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M5 4.5h11l3 3V19a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+            <path d="M8 4.5V9h7V4.5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+            <path d="M9 15h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          </svg>
+        `,
+        primary: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 3.8l2.5 5.1 5.6.8-4.1 4 1 5.7-5-2.6-5 2.6 1-5.7-4.1-4 5.6-.8L12 3.8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+          </svg>
+        `,
+        invoice: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M7 3.5h8l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+            <path d="M15 3.5V8h4" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
+            <path d="M9 12h6M9 16h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+          </svg>
+        `,
+        return: `
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M8 7H4v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="M4 11a8 8 0 1 0 2.3-5.7L4 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        `,
+      };
+      return icons[icon] || icons.edit;
+    }
+
+    function renderAdminIconButton({ action, id, icon, label, title, extraClass = '', danger = false, disabled = false, extraAttrs = '' }) {
+      const classes = `${danger ? 'admin-icon-btn danger' : 'admin-icon-btn'}${extraClass ? ` ${extraClass}` : ''}`;
+      return `<button type="button" class="${classes}" data-action="${action}" data-id="${escapeHtml(id)}" aria-label="${escapeHtml(label)}" title="${escapeHtml(title || label)}" ${disabled ? 'disabled' : ''} ${extraAttrs}>${getAdminIconSvg(icon)}</button>`;
+    }
+
     function renderImageStrip(product) {
       const images = getSortedImages(product);
       if (images.length === 0) {
@@ -1820,11 +2097,43 @@ try {
                   <td>${product.is_active ? 'Si' : 'No'}</td>
                   <td>${renderImageStrip(product)}</td>
                   <td>
-                    <div class="row">
-                      <button type="button" class="btn secondary" data-action="edit-product" data-id="${product.id}" ${isFallback ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>Editar</button>
-                      <button type="button" class="btn secondary" data-action="manage-product-images" data-id="${product.id}" ${isFallback ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>Fotos</button>
-                      <button type="button" class="btn secondary" data-action="toggle-product-visibility" data-id="${product.id}" data-next-active="${product.is_active ? '0' : '1'}" ${isFallback ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>${product.is_active ? 'Ocultar' : 'Mostrar'}</button>
-                      <button type="button" class="btn secondary" data-action="delete-product" data-id="${product.id}" ${isFallback ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>Eliminar</button>
+                    <div class="admin-category-actions">
+                      ${renderAdminIconButton({
+                        action: 'edit-product',
+                        id: product.id,
+                        icon: 'edit',
+                        label: `Editar ${product.name}`,
+                        title: isFallback ? 'Solo disponible con conexion a Supabase' : 'Editar producto',
+                        disabled: isFallback,
+                      })}
+                      ${renderAdminIconButton({
+                        action: 'manage-product-images',
+                        id: product.id,
+                        icon: 'images',
+                        label: `Gestionar fotos de ${product.name}`,
+                        title: isFallback ? 'Solo disponible con conexion a Supabase' : 'Gestionar fotos',
+                        disabled: isFallback,
+                      })}
+                      ${renderAdminIconButton({
+                        action: 'toggle-product-visibility',
+                        id: product.id,
+                        icon: product.is_active ? 'hide' : 'show',
+                        label: `${product.is_active ? 'Ocultar' : 'Mostrar'} ${product.name}`,
+                        title: product.is_active ? 'Ocultar producto' : 'Mostrar producto',
+                        disabled: isFallback,
+                        extraAttrs: `data-next-active="${product.is_active ? '0' : '1'}"`,
+                      })}
+                      <span class="admin-danger-wrap">
+                        ${renderAdminIconButton({
+                          action: 'delete-product',
+                          id: product.id,
+                          icon: 'delete',
+                          label: `Eliminar ${product.name}`,
+                          title: isFallback ? 'Solo disponible con conexion a Supabase' : 'Eliminar producto',
+                          disabled: isFallback,
+                          danger: true,
+                        })}
+                      </span>
                     </div>
                   </td>
                 </tr>`;
@@ -1850,20 +2159,22 @@ try {
                 <td>
                   <div class="admin-category-actions">
                     <button type="button" class="btn admin-view-products-btn" data-action="view-category-products" data-id="${category.id}">Ver Productos</button>
-                    <button type="button" class="admin-icon-btn" data-action="edit-category" data-id="${category.id}" aria-label="Editar ${category.name}" title="Editar categoría">
-                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d="M12 20h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
-                      </svg>
-                    </button>
+                    ${renderAdminIconButton({
+                      action: 'edit-category',
+                      id: category.id,
+                      icon: 'edit',
+                      label: `Editar ${category.name}`,
+                      title: 'Editar categoria',
+                    })}
                     <span class="admin-danger-wrap">
-                      <button type="button" class="admin-icon-btn danger" data-action="delete-category" data-id="${category.id}" aria-label="Eliminar ${category.name}" title="Eliminar categoría">
-                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                          <path d="M4 7h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-                          <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.8"></path>
-                          <path d="M7 7l1 12a1 1 0 0 0 1 .9h6a1 1 0 0 0 1-.9L17 7" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
-                        </svg>
-                      </button>
+                      ${renderAdminIconButton({
+                        action: 'delete-category',
+                        id: category.id,
+                        icon: 'delete',
+                        label: `Eliminar ${category.name}`,
+                        title: 'Eliminar categoria',
+                        danger: true,
+                      })}
                     </span>
                   </div>
                 </td>
@@ -1911,9 +2222,21 @@ try {
                   ` : 'No solicitada'}
                 </td>
                 <td>
-                  <div class="row">
-                    <button type="button" class="btn secondary" data-action="invoice-order" data-id="${order.id}">Factura</button>
-                    <button type="button" class="btn secondary" data-action="request-return" data-id="${order.id}">Devolucion</button>
+                  <div class="admin-category-actions">
+                    ${renderAdminIconButton({
+                      action: 'invoice-order',
+                      id: order.id,
+                      icon: 'invoice',
+                      label: `Generar factura del pedido ${order.id}`,
+                      title: 'Generar factura',
+                    })}
+                    ${renderAdminIconButton({
+                      action: 'request-return',
+                      id: order.id,
+                      icon: 'return',
+                      label: `Gestionar devolucion del pedido ${order.id}`,
+                      title: 'Gestionar devolucion',
+                    })}
                   </div>
                 </td>
               </tr>`;
@@ -1942,12 +2265,22 @@ try {
         grouped.set(key, prev);
       }
 
-      const rows = [...grouped.values()].sort((a, b) => b.total - a.total);
-      usersTableBody.innerHTML = rows.length
-        ? rows
-            .map((user) => `<tr><td>${user.name}</td><td>${user.orders}</td><td>${formatMoney(user.total)}</td><td>${formatDate(user.last)}</td></tr>`)
+      const rows = [...grouped.entries()]
+        .map(([key, user]) => ({ ...user, key }))
+        .sort((a, b) => b.total - a.total)
+        .map((user, index) => ({ ...user, displayId: index + 1 }));
+
+      const search = normalizeSearchText(usersFilter);
+      const filteredRows = rows.filter((user) => {
+        if (!search) return true;
+        return normalizeSearchText(`${user.displayId} ${user.name} ${user.key}`).includes(search);
+      });
+
+      usersTableBody.innerHTML = filteredRows.length
+        ? filteredRows
+            .map((user) => `<tr><td>${user.displayId}</td><td>${escapeHtml(user.name)}</td><td>${user.orders}</td><td>${formatMoney(user.total)}</td><td>${formatDate(user.last)}</td></tr>`)
             .join('')
-        : '<tr><td colspan="4">No hay usuarios con pedidos.</td></tr>';
+        : `<tr><td colspan="5">${rows.length ? 'No hay usuarios que coincidan con la busqueda.' : 'No hay usuarios con pedidos.'}</td></tr>`;
     }
 
     function downloadText(filename, content) {
@@ -1960,6 +2293,17 @@ try {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
+    }
+
+    function downloadBlob(filename, blob) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     function ensureInvoice(order) {
@@ -1982,21 +2326,43 @@ try {
     }
 
     function renderInvoicesTable() {
-      const invoices = adminInvoices;
+      const search = normalizeSearchText(invoiceCustomerFilter);
+      const invoices = adminInvoices.filter((invoice) => {
+        if (!search) return true;
+        const order = getInvoiceOrder(invoice);
+        const customerName = getInvoiceCustomerName(invoice, order);
+        return normalizeSearchText(customerName).includes(search);
+      });
 
       invoicesTableBody.innerHTML = invoices.length
         ? invoices
             .map((invoice) => `<tr>
               <td>${invoice.id}</td>
               <td>${invoice.order_id}</td>
+              <td>${escapeHtml(getInvoiceCustomerName(invoice, getInvoiceOrder(invoice)))}</td>
               <td>${formatDate(invoice.created_at)}</td>
               <td>${formatMoney(invoice.total_cents)}</td>
               <td>
-                <button type="button" class="btn secondary" data-action="download-invoice" data-id="${invoice.id}">Descargar</button>
+                <div class="admin-category-actions">
+                  ${renderAdminIconButton({
+                    action: 'preview-invoice',
+                    id: invoice.id,
+                    icon: 'preview',
+                    label: `Previsualizar factura ${invoice.id}`,
+                    title: 'Ver factura',
+                  })}
+                  ${renderAdminIconButton({
+                    action: 'download-invoice',
+                    id: invoice.id,
+                    icon: 'download',
+                    label: `Descargar factura ${invoice.id}`,
+                    title: 'Descargar factura',
+                  })}
+                </div>
               </td>
             </tr>`)
             .join('')
-        : '<tr><td colspan="5">No hay facturas creadas.</td></tr>';
+        : '<tr><td colspan="6">No hay facturas que coincidan con la busqueda.</td></tr>';
     }
 
     function populateCategorySelect() {
@@ -2088,6 +2454,16 @@ try {
 
     categoryProductsCloseBtn?.addEventListener('click', () => categoryProductsModal.close());
     productImagesCloseBtn?.addEventListener('click', () => productImagesModal.close());
+    invoicePreviewCloseBtn?.addEventListener('click', closeInvoicePreview);
+    invoicePreviewModal?.addEventListener('close', () => {
+      if (invoicePreviewFrame instanceof HTMLIFrameElement) {
+        invoicePreviewFrame.src = 'about:blank';
+      }
+      if (invoicePreviewUrl) {
+        URL.revokeObjectURL(invoicePreviewUrl);
+        invoicePreviewUrl = '';
+      }
+    });
 
     categoryAddProductBtn?.addEventListener('click', async () => {
       const productId = categoryAddProductSelect.value;
@@ -2145,9 +2521,25 @@ try {
           <td>${p.name}</td>
           <td>${renderImageStrip(p)}</td>
           <td>
-            <div class="row">
-              <button type="button" class="btn secondary" data-action="manage-product-images-cat" data-id="${p.id}" ${(Boolean(p.is_shopify_fallback) || String(p.id || '').startsWith('shopify:')) ? 'disabled title="Solo disponible con conexión a Supabase"' : ''}>Fotos</button>
-              <button type="button" class="btn secondary" data-action="remove-product-cat" data-id="${p.id}">Quitar</button>
+            <div class="admin-category-actions">
+              ${renderAdminIconButton({
+                action: 'manage-product-images-cat',
+                id: p.id,
+                icon: 'images',
+                label: `Gestionar fotos de ${p.name}`,
+                title: (Boolean(p.is_shopify_fallback) || String(p.id || '').startsWith('shopify:')) ? 'Solo disponible con conexion a Supabase' : 'Gestionar fotos',
+                disabled: Boolean(p.is_shopify_fallback) || String(p.id || '').startsWith('shopify:'),
+              })}
+              <span class="admin-danger-wrap">
+                ${renderAdminIconButton({
+                  action: 'remove-product-cat',
+                  id: p.id,
+                  icon: 'delete',
+                  label: `Quitar ${p.name} de la categoria`,
+                  title: 'Quitar de la categoria',
+                  danger: true,
+                })}
+              </span>
             </div>
           </td>
         </tr>
@@ -2180,10 +2572,32 @@ try {
                 <td><input type="text" class="admin-inline-input" data-field="alt" data-image-id="${image.id}" value="${escapeHtml(image.alt_text || '')}" /></td>
                 <td><strong>${index === 0 ? 'Si' : 'No'}</strong></td>
                 <td>
-                  <div class="row">
-                    <button type="button" class="btn secondary" data-action="save-product-image" data-id="${image.id}">Guardar</button>
-                    <button type="button" class="btn secondary" data-action="set-primary-product-image" data-id="${image.id}" ${index === 0 ? 'disabled' : ''}>Principal</button>
-                    <button type="button" class="btn secondary" data-action="delete-product-image" data-id="${image.id}">Borrar</button>
+                  <div class="admin-category-actions">
+                    ${renderAdminIconButton({
+                      action: 'save-product-image',
+                      id: image.id,
+                      icon: 'save',
+                      label: `Guardar imagen ${index + 1} de ${product.name}`,
+                      title: 'Guardar cambios',
+                    })}
+                    ${renderAdminIconButton({
+                      action: 'set-primary-product-image',
+                      id: image.id,
+                      icon: 'primary',
+                      label: `Marcar imagen ${index + 1} como principal`,
+                      title: index === 0 ? 'Ya es la imagen principal' : 'Marcar como principal',
+                      disabled: index === 0,
+                    })}
+                    <span class="admin-danger-wrap">
+                      ${renderAdminIconButton({
+                        action: 'delete-product-image',
+                        id: image.id,
+                        icon: 'delete',
+                        label: `Eliminar imagen ${index + 1} de ${product.name}`,
+                        title: 'Eliminar imagen',
+                        danger: true,
+                      })}
+                    </span>
                   </div>
                 </td>
               </tr>
@@ -2757,61 +3171,37 @@ try {
       showGlobal('ok', `Factura ${invoice.id} generada para ${order.id}.`);
     }
 
-    async function imageUrlToDataUrl(url) {
-      const src = String(url || '').trim();
-      if (!src || src.endsWith('.svg')) return null;
-
-      try {
-        const response = await fetch(src, { mode: 'cors' });
-        if (!response.ok) return null;
-
-        const blob = await response.blob();
-        return await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
-          reader.onerror = () => resolve(null);
-          reader.readAsDataURL(blob);
-        });
-      } catch {
-        return null;
-      }
+    function setInvoiceActionButtonState(triggerButton, isBusy, labelWhenBusy = 'Preparando...') {
+      if (!(triggerButton instanceof HTMLButtonElement)) return () => {};
+      const originalLabel = triggerButton.textContent || '';
+      triggerButton.disabled = isBusy;
+      triggerButton.textContent = isBusy ? labelWhenBusy : originalLabel;
+      return () => {
+        triggerButton.disabled = false;
+        triggerButton.textContent = originalLabel;
+      };
     }
 
-    function getOrderItemImageUrl(item) {
-      const productId = String(item?.productId ?? item?.product_id ?? '').trim();
-      let product = productId
-        ? products.find((entry) => String(entry?.id || '').trim() === productId)
-        : null;
-
-      if (!product) {
-        const itemName = String(item?.name || '').trim().toLowerCase();
-        if (itemName) {
-          product = products.find((entry) => String(entry?.name || '').trim().toLowerCase() === itemName);
-        }
-      }
-
-      if (!product) return '';
-      const raw = getPrimaryImageUrl(product);
-      const resolved = resolveImageUrl(raw);
-      return resolved.includes('/catalogo/placeholder.svg') ? '' : resolved;
-    }
-
-    async function downloadInvoice(invoiceId) {
+    async function buildInvoicePdf(invoiceId) {
       const invoices = adminInvoices;
       const orders = adminOrders;
       const invoice = invoices.find((entry) => entry.id === invoiceId);
       if (!invoice) {
-        showGlobal('danger', 'Factura no encontrada.');
-        return;
+        throw new Error('Factura no encontrada.');
       }
 
       const order = orders.find((entry) => entry.id === invoice.order_id);
-  const invoiceTotalCents = Math.max(0, Number(invoice?.total_cents ?? order?.total_cents) || 0);
-  const shippingCost = Math.max(0, Number(order?.shipping_cents) || 0);
-  const fiscalNumber = toFiscalNumber(invoice);
-  const vatBaseCents = Math.round(invoiceTotalCents / (1 + INVOICE_VAT_RATE));
-  const vatAmountCents = Math.max(0, invoiceTotalCents - vatBaseCents);
-  const customerTaxId = String(order?.shipping?.tax_id || order?.shipping?.nif || order?.shipping?.dni || '').trim() || 'N/D';
+      const invoiceTotalCents = Math.max(0, Number(invoice?.total_cents ?? order?.total_cents) || 0);
+      const shippingCost = Math.max(0, Number(order?.shipping_cents) || 0);
+      const fiscalNumber = toFiscalNumber(invoice);
+      const vatBaseCents = Math.round(invoiceTotalCents / (1 + INVOICE_VAT_RATE));
+      const vatAmountCents = Math.max(0, invoiceTotalCents - vatBaseCents);
+      const customerTaxId = String(order?.shipping?.tax_id || order?.shipping?.nif || order?.shipping?.dni || '').trim() || 'N/D';
+      const customerName = getInvoiceCustomerName(invoice, order);
+
+      if (!window.jspdf?.jsPDF) {
+        throw new Error('La libreria de PDF no esta disponible.');
+      }
 
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -2853,7 +3243,7 @@ try {
       doc.setTextColor(50, 50, 50);
       doc.text('Cliente / Receptor', 112, 49);
       doc.setFontSize(11);
-      doc.text(order?.shipping?.full_name || invoice.customer, 112, 55);
+      doc.text(customerName, 112, 55);
       doc.setFontSize(9);
       doc.text(`NIF/DNI: ${customerTaxId}`, 112, 60);
       doc.text(order?.shipping?.shipping_address || '', 112, 65, { maxWidth: 80 });
@@ -2867,9 +3257,13 @@ try {
       doc.text(`Estado: ${String(order?.status || 'pending').toUpperCase()}`, 104, 97);
       doc.text(`IVA aplicado: ${formatPercent(INVOICE_VAT_RATE)}`, 152, 97);
 
-      const tableData = [];
-      const imageCache = new Map();
       const items = Array.isArray(order?.items) ? order.items : [];
+      const imageUrls = items.map((item) => getOrderItemImageUrl(item));
+      const imageDataList = await Promise.all(
+        imageUrls.map((url) => loadImageThumbnailDataUrl(url, { maxWidth: 68, maxHeight: 68, timeoutMs: 1800 }))
+      );
+
+      const tableData = [];
       let subtotal = 0;
 
       for (const [index, item] of items.entries()) {
@@ -2878,20 +3272,8 @@ try {
         const lineTotal = unit * qty;
         subtotal += lineTotal;
 
-        const imageUrl = getOrderItemImageUrl(item);
-        let imageData = null;
-        if (imageUrl) {
-          if (imageCache.has(imageUrl)) {
-            imageData = imageCache.get(imageUrl);
-          } else {
-            imageData = await imageUrlToDataUrl(imageUrl);
-            imageCache.set(imageUrl, imageData);
-          }
-        }
-
         tableData.push([
-          imageData || '',
-          item.name || `Producto ${index + 1}`,
+          { content: item.name || `Producto ${index + 1}`, imageData: imageDataList[index] || null },
           qty.toString(),
           formatMoney(unit),
           formatMoney(lineTotal)
@@ -2899,42 +3281,51 @@ try {
       }
 
       if (shippingCost > 0) {
-        tableData.push(['', 'Envio', '1', formatMoney(shippingCost), formatMoney(shippingCost)]);
+        tableData.push([{ content: 'Envio', imageData: null }, '1', formatMoney(shippingCost), formatMoney(shippingCost)]);
       }
 
       doc.autoTable({
         startY: 102,
-        head: [['Foto', 'Producto', 'Cantidad', 'Precio Unit.', 'Total']],
+        head: [['Producto', 'Cantidad', 'Precio Unit.', 'Total']],
         body: tableData,
         theme: 'grid',
         headStyles: { fillColor: brandColor },
-        styles: { fontSize: 9, valign: 'middle', cellPadding: 2.2 },
+        styles: { fontSize: 9, valign: 'middle', cellPadding: 2.2, overflow: 'linebreak' },
         columnStyles: {
-          0: { cellWidth: 18, halign: 'center' },
-          1: { cellWidth: 78 },
-          2: { cellWidth: 22, halign: 'center' },
+          0: { cellWidth: 96 },
+          1: { cellWidth: 26, halign: 'center' },
+          2: { cellWidth: 34, halign: 'right' },
           3: { cellWidth: 34, halign: 'right' },
-          4: { cellWidth: 34, halign: 'right' },
         },
         didParseCell: (hookData) => {
           if (hookData.section === 'body' && hookData.column.index === 0) {
-            hookData.cell.styles.minCellHeight = 14;
+            const raw = hookData.cell.raw;
+            const hasImage = Boolean(raw && typeof raw === 'object' && raw.imageData);
+            if (raw && typeof raw === 'object') {
+              hookData.cell.text = [String(raw.content || '')];
+            }
+            if (hasImage) {
+              hookData.cell.styles.minCellHeight = 22;
+              hookData.cell.styles.cellPadding = { top: 4, right: 2.2, bottom: 4, left: 20 };
+            } else {
+              hookData.cell.styles.cellPadding = { top: 3, right: 2.2, bottom: 3, left: 2.2 };
+            }
           }
         },
         didDrawCell: (hookData) => {
           if (hookData.section !== 'body' || hookData.column.index !== 0) return;
-          const rowImage = hookData.cell.raw;
-          if (!rowImage || typeof rowImage !== 'string') return;
+          const raw = hookData.cell.raw;
+          if (!raw || typeof raw !== 'object' || !raw.imageData) return;
 
-          const size = 12;
-          const x = hookData.cell.x + (hookData.cell.width - size) / 2;
-          const y = hookData.cell.y + (hookData.cell.height - size) / 2;
+          const imageSize = 14;
+          const imageX = hookData.cell.x + 2;
+          const imageY = hookData.cell.y + Math.max(1, (hookData.cell.height - imageSize) / 2);
 
           try {
-            doc.addImage(rowImage, 'JPEG', x, y, size, size, undefined, 'FAST');
+            doc.addImage(raw.imageData, 'JPEG', imageX, imageY, imageSize, imageSize, undefined, 'FAST');
           } catch {
             try {
-              doc.addImage(rowImage, 'PNG', x, y, size, size, undefined, 'FAST');
+              doc.addImage(raw.imageData, 'PNG', imageX, imageY, imageSize, imageSize, undefined, 'FAST');
             } catch {}
           }
         },
@@ -2964,7 +3355,53 @@ try {
       doc.text('Factura emitida segun Reglamento de facturacion (RD 1619/2012).', 14, 286);
       doc.text(`Gracias por confiar en Elegilsa. Soporte: ${COMPANY_SUPPORT_EMAIL}`, 105, 291, { align: 'center' });
 
-      doc.save(`Factura_Elegilsa_${invoice.id}.pdf`);
+      return {
+        invoice,
+        customerName,
+        doc,
+        blob: doc.output('blob'),
+      };
+    }
+
+    async function downloadInvoice(invoiceId, triggerButton = null) {
+      const restoreButton = setInvoiceActionButtonState(triggerButton, true, 'Generando...');
+      try {
+        await waitForNextFrame();
+        const { invoice, blob } = await buildInvoicePdf(invoiceId);
+        downloadBlob(`Factura_Elegilsa_${invoice.id}.pdf`, blob);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'No se pudo generar la factura.';
+        showGlobal('danger', reason);
+      } finally {
+        restoreButton();
+      }
+    }
+
+    async function previewInvoice(invoiceId, triggerButton = null) {
+      const restoreButton = setInvoiceActionButtonState(triggerButton, true, 'Abriendo...');
+      try {
+        await waitForNextFrame();
+        const { invoice, customerName, blob } = await buildInvoicePdf(invoiceId);
+        closeInvoicePreview();
+        invoicePreviewUrl = URL.createObjectURL(blob);
+        if (invoicePreviewTitle) {
+          invoicePreviewTitle.textContent = `Vista previa · ${invoice.id}`;
+        }
+        if (invoicePreviewSubtitle) {
+          invoicePreviewSubtitle.textContent = `${customerName} · ${formatDate(invoice.created_at)}`;
+        }
+        if (invoicePreviewFrame instanceof HTMLIFrameElement) {
+          invoicePreviewFrame.src = invoicePreviewUrl;
+        }
+        if (!invoicePreviewModal?.open) {
+          invoicePreviewModal?.showModal();
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'No se pudo abrir la factura.';
+        showGlobal('danger', reason);
+      } finally {
+        restoreButton();
+      }
     }
 
     async function refreshAll() {
@@ -3167,6 +3604,16 @@ try {
       renderInvoicesTable();
     });
 
+    invoiceCustomerFilterInput?.addEventListener('input', (event) => {
+      invoiceCustomerFilter = event.target instanceof HTMLInputElement ? event.target.value : '';
+      renderInvoicesTable();
+    });
+
+    usersFilterInput?.addEventListener('input', (event) => {
+      usersFilter = event.target instanceof HTMLInputElement ? event.target.value : '';
+      renderUsersTable();
+    });
+
     productImagesAddBtn?.addEventListener('click', async () => {
       if (!currentImagesProductId) return;
 
@@ -3298,8 +3745,12 @@ try {
       const id = button.getAttribute('data-id');
       if (!id) return;
 
+      if (action === 'preview-invoice') {
+        previewInvoice(id, button);
+      }
+
       if (action === 'download-invoice') {
-        downloadInvoice(id);
+        downloadInvoice(id, button);
       }
     });
 
