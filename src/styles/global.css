@@ -1425,6 +1425,22 @@ select:focus {
   gap: 0.8rem;
 }
 
+.admin-products-head-actions {
+  display: grid;
+  justify-items: end;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.admin-inline-filter {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 240px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 .admin-head-actions {
   display: flex;
   justify-content: flex-end;
@@ -1467,6 +1483,7 @@ select:focus {
 }
 
 .admin-icon-btn {
+  position: relative;
   width: 38px;
   height: 38px;
   border-radius: 10px;
@@ -1486,6 +1503,32 @@ select:focus {
 
 .admin-icon-btn:hover {
   border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
+}
+
+.admin-icon-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%) translateY(6px);
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  background: rgba(28, 24, 20, 0.96);
+  color: #fff;
+  padding: 0.42rem 0.55rem;
+  border-radius: 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  z-index: 20;
+}
+
+.admin-icon-btn:hover::after,
+.admin-icon-btn:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .admin-danger-wrap {
@@ -1536,6 +1579,122 @@ select:focus {
   gap: 0.55rem;
   overflow-x: auto;
   padding-bottom: 0.35rem;
+}
+
+.compact-sales-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.compact-sales-filter {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.compact-sales-filter select {
+  min-width: 220px;
+}
+
+.compact-sales-view-toggle {
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.compact-sales-view-toggle .btn.is-active {
+  color: #fff;
+  background: linear-gradient(120deg, var(--brand), var(--brand-2));
+  border-color: transparent;
+}
+
+.compact-sales-chart {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.compact-sales-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.compact-sales-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.compact-sales-legend-item i {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.compact-sales-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+  align-items: end;
+  min-height: 280px;
+}
+
+.compact-sales-chart-group {
+  display: grid;
+  gap: 0.55rem;
+  align-items: end;
+}
+
+.compact-sales-chart-group strong {
+  text-align: center;
+}
+
+.compact-sales-bars {
+  min-height: 240px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.compact-sales-bar-wrap {
+  flex: 1;
+  max-width: 72px;
+  display: grid;
+  gap: 0.3rem;
+  justify-items: center;
+}
+
+.compact-sales-bar {
+  width: 100%;
+  min-height: 6px;
+  border-radius: 12px 12px 8px 8px;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+  animation: riseIn 0.6s ease both;
+}
+
+.compact-sales-bar.has-value {
+  box-shadow: 0 14px 24px rgba(68, 48, 31, 0.16), inset 0 -1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.compact-sales-bar.is-empty {
+  opacity: 0.32;
+}
+
+.compact-sales-bar-wrap small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-align: center;
 }
 
 .general-sales-day {
@@ -1682,5 +1841,23 @@ select:focus {
   .admin-page-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .admin-products-head-actions,
+  .compact-sales-controls {
+    width: 100%;
+    align-items: stretch;
+    justify-items: stretch;
+  }
+
+  .admin-inline-filter,
+  .compact-sales-filter,
+  .compact-sales-filter select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .compact-sales-chart-grid {
+    grid-template-columns: 1fr 1fr;
   }
 }

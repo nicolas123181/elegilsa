@@ -1,9 +1,8 @@
 ---
 import '../styles/global.css';
 import SearchModal from '../components/SearchModal.astro';
-import { getNavigationCategories, getSearchProducts } from '../lib/store';
+import { getNavigationCategories } from '../lib/store';
 import type { Category } from '../lib/types';
-import type { SearchProduct } from '../lib/store';
 
 type Props = {
 	title?: string;
@@ -16,17 +15,10 @@ const {
 } = Astro.props;
 
 let navCategories: Category[] = [];
-let searchProducts: SearchProduct[] = [];
 try {
 	navCategories = await getNavigationCategories();
 } catch {
 	navCategories = [];
-}
-
-try {
-	searchProducts = await getSearchProducts();
-} catch {
-	searchProducts = [];
 }
 ---
 
@@ -103,7 +95,7 @@ try {
 			<slot />
 		</main>
 
-		<SearchModal products={searchProducts} />
+		<SearchModal />
 
 		<footer class="footer">
 			<div class="container">
@@ -170,13 +162,32 @@ try {
 
 			revealTargets.forEach((el) => observer.observe(el));
 
-			const body = document.body;
-			window.addEventListener('pointermove', (event) => {
-				const x = (event.clientX / window.innerWidth) * 100;
-				const y = (event.clientY / window.innerHeight) * 100;
-				body.style.setProperty('--mouse-x', `${x}%`);
-				body.style.setProperty('--mouse-y', `${y}%`);
-			});
+			const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+			const supportsFinePointer = window.matchMedia('(pointer: fine)').matches;
+			if (!prefersReducedMotion && supportsFinePointer) {
+				const body = document.body;
+				let pointerFrame = 0;
+				let nextX = 50;
+				let nextY = 50;
+
+				const flushPointerPosition = () => {
+					pointerFrame = 0;
+					body.style.setProperty('--mouse-x', `${nextX}%`);
+					body.style.setProperty('--mouse-y', `${nextY}%`);
+				};
+
+				window.addEventListener(
+					'pointermove',
+					(event) => {
+						nextX = (event.clientX / window.innerWidth) * 100;
+						nextY = (event.clientY / window.innerHeight) * 100;
+
+						if (pointerFrame) return;
+						pointerFrame = window.requestAnimationFrame(flushPointerPosition);
+					},
+					{ passive: true }
+				);
+			}
 
 			function normalizeWishlistItem(item) {
 				if (!item || typeof item !== 'object') return null;

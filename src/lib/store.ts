@@ -4,9 +4,8 @@ import { normalizeProductImages, resolveImageUrl } from './images';
 import type { Cart, CartItemView, CartView, Category, Product, ProductImage, ProductVariant } from './types';
 
 const CART_COOKIE = 'elegilsa_cart_token';
-const SHOPIFY_PRODUCTS_URL = 'https://elegilsa.com/products.json?limit=250';
-let shopifyImageMapPromise: Promise<Map<string, ProductImage[]>> | null = null;
 let searchProductsPromise: Promise<SearchProduct[]> | null = null;
+let navigationCategoriesPromise: Promise<Category[]> | null = null;
 
 export type SearchProduct = {
   id: string;
@@ -144,6 +143,51 @@ function scoreProductSearchMatch(product: Product, query: string): number {
   return score;
 }
 
+function scoreSearchProductMatch(product: SearchProduct, query: string): number {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return 0;
+
+  const name = normalizeSearchText(product.name);
+  const blob = normalizeSearchText(product.search_blob || `${product.name} ${product.description}`);
+  const queryTokens = tokenizeSearchText(normalizedQuery);
+  const nameTokens = tokenizeSearchText(name);
+  const blobTokens = tokenizeSearchText(blob);
+
+  let score = 0;
+
+  if (name === normalizedQuery) score += 250;
+  if (name.startsWith(normalizedQuery)) score += 130;
+  if (name.includes(normalizedQuery)) score += 95;
+  if (blob.includes(normalizedQuery)) score += 55;
+
+  let matchedTokens = 0;
+  for (const token of queryTokens) {
+    if (nameTokens.some((nameToken) => nameToken.startsWith(token))) {
+      score += 34;
+      matchedTokens += 1;
+      continue;
+    }
+
+    if (blobTokens.includes(token)) {
+      score += 20;
+      matchedTokens += 1;
+      continue;
+    }
+
+    const closeMatch = nameTokens.find((nameToken) => levenshteinDistance(nameToken, token, 1) <= 1);
+    if (closeMatch) {
+      score += 11;
+      matchedTokens += 1;
+    }
+  }
+
+  if (queryTokens.length > 0 && matchedTokens === queryTokens.length) {
+    score += 28;
+  }
+
+  return score;
+}
+
 export function persistCartToken(cookies: AstroCookies, token: string) {
   cookies.set(CART_COOKIE, token, {
     path: '/',
@@ -170,82 +214,6 @@ function normalizeProduct(row: any): Product {
   };
 }
 
-async function getShopifyImageMap(): Promise<Map<string, ProductImage[]>> {
-  if (!shopifyImageMapPromise) {
-    shopifyImageMapPromise = (async () => {
-      const response = await fetch(SHOPIFY_PRODUCTS_URL, {
-        headers: {
-          Accept: 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch Shopify catalog: ${response.status}`);
-      }
-
-      const payload = (await response.json()) as {
-        products?: Array<{
-          handle?: string;
-          images?: Array<{ src?: string; alt?: string | null }>;
-        }>;
-      };
-
-      const map = new Map<string, ProductImage[]>();
-
-      for (const product of payload.products ?? []) {
-        const handle = typeof product.handle === 'string' ? product.handle.trim() : '';
-        if (!handle) continue;
-
-        const images = (product.images ?? [])
-          .map((image, index) => {
-            const url = typeof image.src === 'string' ? image.src.trim() : '';
-            if (!url) return null;
-
-            return {
-              id: 10_000_000 + index,
-              url,
-              alt_text: typeof image.alt === 'string' ? image.alt : null,
-              position: index + 1,
-            } as ProductImage;
-          })
-          .filter((image): image is ProductImage => image !== null);
-
-        if (images.length > 0) {
-          map.set(handle, images);
-        }
-      }
-
-      return map;
-    })().catch((error) => {
-      shopifyImageMapPromise = null;
-      throw error;
-    });
-  }
-
-  return shopifyImageMapPromise;
-}
-
-async function withShopifyImageFallback(products: Product[]): Promise<Product[]> {
-  try {
-    const imageMap = await getShopifyImageMap();
-    return products.map((product) => {
-      if (Array.isArray(product.product_images) && product.product_images.length > 0) {
-        return product;
-      }
-
-      const fallbackImages = imageMap.get(product.slug) ?? [];
-      if (fallbackImages.length === 0) return product;
-
-      return {
-        ...product,
-        product_images: fallbackImages,
-      };
-    });
-  } catch {
-    return products;
-  }
-}
-
 export async function getFeaturedProducts(limit = 8): Promise<Product[]> {
   try {
     const { data, error } = await supabase
@@ -260,7 +228,7 @@ export async function getFeaturedProducts(limit = 8): Promise<Product[]> {
 
     if (error) throw error;
     const products = (data ?? []).map(normalizeProduct);
-    return withShopifyImageFallback(products);
+    return products;
   } catch (error) {
     if (isSupabaseConnectivityError(error)) return [];
     throw error;
@@ -295,7 +263,7 @@ export async function getSearchProducts(): Promise<SearchProduct[]> {
         categoryById.set(id, { slug, name });
       }
 
-      const products = await withShopifyImageFallback((productRows ?? []).map(normalizeProduct));
+      const products = (productRows ?? []).map(normalizeProduct);
 
       return products.map((product) => {
         const category = categoryById.get(Number(product.category_id));
@@ -339,43 +307,134 @@ export type ProductListParams = {
 };
 
 export async function getNavigationCategories(): Promise<Category[]> {
-  try {
-    const { data: categories, error: categoriesError } = await supabase
-      .from('categories')
-      .select('id,slug,name,description,created_at')
-      .order('name', { ascending: true });
+  if (!navigationCategoriesPromise) {
+    navigationCategoriesPromise = (async () => {
+      try {
+        const { data: categories, error: categoriesError } = await supabase
+          .from('categories')
+          .select('id,slug,name,description,created_at')
+          .order('name', { ascending: true });
 
-    if (categoriesError) throw categoriesError;
+        if (categoriesError) throw categoriesError;
 
-    const { data: products, error: productsError } = await supabase
-      .from('products')
-      .select('category_id')
-      .eq('is_active', true);
+        const { data: products, error: productsError } = await supabase
+          .from('products')
+          .select('category_id')
+          .eq('is_active', true);
 
-    if (productsError) throw productsError;
+        if (productsError) throw productsError;
 
-    const counts = new Map<number, number>();
-    for (const row of products ?? []) {
-      const categoryId = Number((row as any).category_id);
-      if (!Number.isFinite(categoryId)) continue;
-      counts.set(categoryId, (counts.get(categoryId) ?? 0) + 1);
-    }
+        const counts = new Map<number, number>();
+        for (const row of products ?? []) {
+          const categoryId = Number((row as any).category_id);
+          if (!Number.isFinite(categoryId)) continue;
+          counts.set(categoryId, (counts.get(categoryId) ?? 0) + 1);
+        }
 
-    return (categories ?? [])
-      .map((category: any) => ({
-        ...category,
-        product_count: counts.get(Number(category.id)) ?? 0,
-      }))
-      .filter((category) => (category.product_count ?? 0) > 0);
-  } catch (error) {
-    if (isSupabaseConnectivityError(error)) return [];
-    throw error;
+        return (categories ?? [])
+          .map((category: any) => ({
+            ...category,
+            product_count: counts.get(Number(category.id)) ?? 0,
+          }))
+          .filter((category) => (category.product_count ?? 0) > 0);
+      } catch (error) {
+        if (isSupabaseConnectivityError(error)) return [];
+        throw error;
+      }
+    })().catch((error) => {
+      navigationCategoriesPromise = null;
+      throw error;
+    });
   }
+
+  return navigationCategoriesPromise;
 }
 
 export async function getAllProducts(params: ProductListParams = {}) {
   const page = Math.max(params.page ?? 1, 1);
   const pageSize = Math.min(Math.max(params.pageSize ?? 16, 1), 50);
+  const hasQuery = Boolean(params.q && params.q.trim().length > 0);
+
+  if (!hasQuery && !params.inStockOnly) {
+    let categoryId: number | null = null;
+
+    if (params.categorySlug && params.categorySlug.trim().length > 0) {
+      const { data: category, error: categoryError } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('slug', params.categorySlug.trim())
+        .maybeSingle();
+
+      if (categoryError) throw categoryError;
+      if (!category) {
+        return {
+          products: [],
+          total: 0,
+          totalPages: 1,
+          page,
+          pageSize,
+        };
+      }
+
+      categoryId = Number((category as any).id);
+    }
+
+    let query = supabase
+      .from('products')
+      .select(
+        'id,category_id,slug,name,description,price_cents,compare_at_cents,featured,is_active,created_at,product_images(id,url,alt_text,position),product_variants(*)',
+        { count: 'exact' }
+      )
+      .eq('is_active', true);
+
+    if (typeof categoryId === 'number' && Number.isFinite(categoryId)) {
+      query = query.eq('category_id', categoryId);
+    }
+
+    if (typeof params.minPrice === 'number') {
+      query = query.gte('price_cents', params.minPrice);
+    }
+
+    if (typeof params.maxPrice === 'number') {
+      query = query.lte('price_cents', params.maxPrice);
+    }
+
+    switch (params.sort) {
+      case 'price_asc':
+        query = query.order('price_cents', { ascending: true });
+        break;
+      case 'price_desc':
+        query = query.order('price_cents', { ascending: false });
+        break;
+      case 'newest':
+      default:
+        query = query.order('created_at', { ascending: false });
+        break;
+    }
+
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    try {
+      const { data, error, count } = await query.range(from, to);
+      if (error) throw error;
+
+      const pagedProducts = (data ?? []).map(normalizeProduct);
+      const total = count ?? pagedProducts.length;
+
+      return {
+        products: pagedProducts,
+        total,
+        totalPages: Math.max(Math.ceil(total / pageSize), 1),
+        page,
+        pageSize,
+      };
+    } catch (error) {
+      if (!isSupabaseConnectivityError(error)) {
+        throw error;
+      }
+    }
+  }
 
   let products: Product[] = [];
   try {
@@ -395,8 +454,6 @@ export async function getAllProducts(params: ProductListParams = {}) {
     }
   }
 
-  products = await withShopifyImageFallback(products);
-
   if (params.inStockOnly) {
     products = products.filter((p) => {
       if (p.product_variants.length === 0) return true;
@@ -412,7 +469,6 @@ export async function getAllProducts(params: ProductListParams = {}) {
     products = products.filter((p) => p.price_cents <= params.maxPrice!);
   }
 
-  const hasQuery = Boolean(params.q && params.q.trim().length > 0);
   if (hasQuery) {
     const q = params.q!.trim();
     const scored = products
@@ -469,6 +525,19 @@ export async function getAllProducts(params: ProductListParams = {}) {
   };
 }
 
+export async function searchProductsByQuery(query: string, limit = 8): Promise<SearchProduct[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const products = await getSearchProducts();
+  return products
+    .map((product) => ({ product, score: scoreSearchProductMatch(product, trimmed) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => entry.product);
+}
+
 export async function getProductBySlug(slug: string): Promise<Product | null> {
   const { data, error } = await supabase
     .from('products')
@@ -481,8 +550,7 @@ export async function getProductBySlug(slug: string): Promise<Product | null> {
 
   if (error) throw error;
   if (!data) return null;
-  const [product] = await withShopifyImageFallback([normalizeProduct(data)]);
-  return product;
+  return normalizeProduct(data);
 }
 
 export async function getAllProductSlugs(): Promise<string[]> {
